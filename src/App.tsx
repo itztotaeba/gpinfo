@@ -20,19 +20,24 @@ export default function App() {
     setErrorMsg('');
   }, []);
 
-  const handleScrape = useCallback(async () => {
-    if (packageNames.length === 0) return;
+  const handleScrape = useCallback(async (packagesToScrape?: string[]) => {
+    const packages = packagesToScrape || packageNames;
+    if (packages.length === 0) return;
 
     setIsProcessing(true);
-    setResults([]);
+    if (!packagesToScrape) {
+      setResults([]);
+    }
     setErrorMsg('');
-    setProgress({ current: 0, total: packageNames.length });
+    setProgress({ current: 0, total: packages.length });
 
-    const allResults: AppInfo[] = [];
-    const batchSize = 5;
+    const allResults: AppInfo[] = packagesToScrape ? [...results] : [];
+    
+    // Smaller batch size to avoid rate limiting (2 instead of 5)
+    const batchSize = 2;
 
-    for (let i = 0; i < packageNames.length; i += batchSize) {
-      const batch = packageNames.slice(i, i + batchSize);
+    for (let i = 0; i < packages.length; i += batchSize) {
+      const batch = packages.slice(i, i + batchSize);
       
       try {
         const response = await fetch('/api/scrape', {
@@ -47,7 +52,6 @@ export default function App() {
         } else {
           const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
           setErrorMsg(`API Error: ${errorData.error || response.statusText}`);
-          // Add error entries for this batch
           batch.forEach(pkg => {
             allResults.push({
               packageName: pkg,
@@ -71,12 +75,26 @@ export default function App() {
         });
       }
 
-      setProgress({ current: Math.min(i + batchSize, packageNames.length), total: packageNames.length });
+      setProgress({ current: Math.min(i + batchSize, packages.length), total: packages.length });
       setResults([...allResults]);
     }
 
     setIsProcessing(false);
-  }, [packageNames]);
+  }, [packageNames, results]);
+
+  const handleRetryFailed = useCallback(() => {
+    const failedPackages = results
+      .filter(r => r.error)
+      .map(r => r.packageName);
+    
+    if (failedPackages.length > 0) {
+      // Remove failed results
+      const successResults = results.filter(r => !r.error);
+      setResults(successResults);
+      // Retry failed packages
+      handleScrape(failedPackages);
+    }
+  }, [results, handleScrape]);
 
   const handleReset = useCallback(() => {
     setPackageNames([]);
@@ -97,6 +115,8 @@ export default function App() {
     setResults([]);
     setErrorMsg('');
   }, []);
+
+  const failedCount = results.filter(r => r.error).length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
@@ -189,7 +209,7 @@ export default function App() {
                 <div className="flex gap-3 shrink-0">
                   {!isProcessing && results.length === 0 && (
                     <button
-                      onClick={handleScrape}
+                      onClick={() => handleScrape()}
                       className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-semibold rounded-xl shadow-lg shadow-green-500/25 transition-all hover:scale-105 active:scale-95"
                     >
                       🔍 Start Scraping
@@ -217,12 +237,30 @@ export default function App() {
         {results.length > 0 && (
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-white">
-                📊 Results ({results.length}/{packageNames.length})
-              </h2>
-              {!isProcessing && (
-                <ExportButton results={results} />
-              )}
+              <div>
+                <h2 className="text-lg font-semibold text-white">
+                  📊 Results ({results.length}/{packageNames.length})
+                </h2>
+                {failedCount > 0 && !isProcessing && (
+                  <p className="text-sm text-yellow-400 mt-1">
+                    ⚠️ {failedCount} app failed to scrape
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-3">
+                {failedCount > 0 && !isProcessing && (
+                  <button
+                    onClick={handleRetryFailed}
+                    className="px-4 py-2 bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-400 hover:to-orange-500 text-white font-medium rounded-lg shadow-lg transition-all hover:scale-105 flex items-center gap-2"
+                  >
+                    <span>🔄</span>
+                    <span>Retry Failed ({failedCount})</span>
+                  </button>
+                )}
+                {!isProcessing && (
+                  <ExportButton results={results} />
+                )}
+              </div>
             </div>
             <ResultsTable results={results} />
           </div>
@@ -240,7 +278,7 @@ export default function App() {
               <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5">
                 <div className="text-2xl mb-2">⚙️</div>
                 <h3 className="font-semibold text-white mb-1">2. Process</h3>
-                <p className="text-sm text-gray-400">Sistem akan otomatis scraping data dari Google Play Store</p>
+                <p className="text-sm text-gray-400">Sistem akan otomatis scraping data dari Google Play Store dengan retry mechanism</p>
               </div>
               <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5">
                 <div className="text-2xl mb-2">📥</div>
@@ -263,15 +301,19 @@ export default function App() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-green-400 mt-0.5">•</span>
-                  <span>Estimasi waktu: ~1.5 detik per package name</span>
+                  <span>Estimasi waktu: ~5-10 detik per package name (dengan retry)</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-green-400 mt-0.5">•</span>
-                  <span>Menggunakan library <code className="px-1 py-0.5 bg-white/10 rounded text-xs font-mono text-blue-300">google-play-scraper</code> untuk data yang akurat</span>
+                  <span>Menggunakan 3 metode scraping dengan retry mechanism untuk akurasi maksimal</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-green-400 mt-0.5">•</span>
-                  <span>File Excel harus memiliki kolom yang berisi package name (otomatis terdeteksi)</span>
+                  <span>Jika ada app yang gagal, gunakan tombol "Retry Failed" untuk mencoba ulang</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-yellow-400 mt-0.5">⚠️</span>
+                  <span className="text-yellow-300">Google Play mungkin memblokir request jika terlalu banyak. Jika banyak app yang gagal, tunggu beberapa menit lalu coba lagi.</span>
                 </li>
               </ul>
             </div>
@@ -283,7 +325,7 @@ export default function App() {
       <footer className="border-t border-white/10 mt-12">
         <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
           <p className="text-center text-sm text-gray-500">
-            Play Store Scraper • Powered by google-play-scraper • Deploy di Vercel
+            Play Store Scraper • Multi-method scraping with retry • Deploy di Vercel
           </p>
         </div>
       </footer>
