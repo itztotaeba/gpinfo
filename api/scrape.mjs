@@ -241,6 +241,10 @@ async function scrapeApp(packageName, maxRetries = 3) {
   };
 }
 
+/**
+ * API Handler - Process SINGLE package per request
+ * Frontend will call this endpoint multiple times for batch processing
+ */
 export default async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -255,30 +259,14 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { packageNames } = req.body;
+  const { packageName } = req.body;
 
-  if (!packageNames || !Array.isArray(packageNames)) {
-    return res.status(400).json({ error: 'packageNames array is required' });
+  if (!packageName || typeof packageName !== 'string') {
+    return res.status(400).json({ error: 'packageName is required' });
   }
 
-  if (packageNames.length > 50) {
-    return res.status(400).json({ error: 'Maximum 50 packages per request' });
-  }
+  // Process single package with retry mechanism
+  const result = await scrapeApp(packageName.trim());
 
-  const results = [];
-
-  for (let i = 0; i < packageNames.length; i++) {
-    const packageName = packageNames[i];
-    if (!packageName || typeof packageName !== 'string') continue;
-    
-    const result = await scrapeApp(packageName.trim());
-    results.push(result);
-    
-    // Longer delay between packages to avoid rate limiting
-    if (i < packageNames.length - 1) {
-      await randomDelay(3000, 6000);
-    }
-  }
-
-  return res.status(200).json({ results });
+  return res.status(200).json({ result });
 }

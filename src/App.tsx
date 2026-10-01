@@ -13,12 +13,45 @@ export default function App() {
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeTab, setActiveTab] = useState<'upload' | 'manual'>('upload');
   const [errorMsg, setErrorMsg] = useState<string>('');
+  const [currentProcessing, setCurrentProcessing] = useState<string>('');
 
   const handlePackagesLoaded = useCallback((packages: string[]) => {
     setPackageNames(packages);
     setResults([]);
     setErrorMsg('');
   }, []);
+
+  const scrapeSinglePackage = async (packageName: string): Promise<AppInfo> => {
+    try {
+      const response = await fetch('/api/scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packageName }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return data.result;
+      } else {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        return {
+          packageName,
+          appName: '',
+          publisherName: '',
+          category: '',
+          error: errorData.error || `HTTP ${response.status}`,
+        };
+      }
+    } catch (error: any) {
+      return {
+        packageName,
+        appName: '',
+        publisherName: '',
+        category: '',
+        error: `Network error: ${error.message}`,
+      };
+    }
+  };
 
   const handleScrape = useCallback(async (packagesToScrape?: string[]) => {
     const packages = packagesToScrape || packageNames;
@@ -32,53 +65,25 @@ export default function App() {
     setProgress({ current: 0, total: packages.length });
 
     const allResults: AppInfo[] = packagesToScrape ? [...results] : [];
-    
-    // Smaller batch size to avoid rate limiting (2 instead of 5)
-    const batchSize = 2;
 
-    for (let i = 0; i < packages.length; i += batchSize) {
-      const batch = packages.slice(i, i + batchSize);
+    // Process one package at a time
+    for (let i = 0; i < packages.length; i++) {
+      const packageName = packages[i];
+      setCurrentProcessing(packageName);
       
-      try {
-        const response = await fetch('/api/scrape', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ packageNames: batch }),
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          allResults.push(...data.results);
-        } else {
-          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-          setErrorMsg(`API Error: ${errorData.error || response.statusText}`);
-          batch.forEach(pkg => {
-            allResults.push({
-              packageName: pkg,
-              appName: '',
-              publisherName: '',
-              category: '',
-              error: errorData.error || `HTTP ${response.status}`,
-            });
-          });
-        }
-      } catch (error: any) {
-        setErrorMsg(`Network Error: ${error.message}`);
-        batch.forEach(pkg => {
-          allResults.push({
-            packageName: pkg,
-            appName: '',
-            publisherName: '',
-            category: '',
-            error: 'Network error - check your connection',
-          });
-        });
-      }
-
-      setProgress({ current: Math.min(i + batchSize, packages.length), total: packages.length });
+      const result = await scrapeSinglePackage(packageName);
+      allResults.push(result);
+      
+      setProgress({ current: i + 1, total: packages.length });
       setResults([...allResults]);
+
+      // Small delay between requests to avoid rate limiting
+      if (i < packages.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
     }
 
+    setCurrentProcessing('');
     setIsProcessing(false);
   }, [packageNames, results]);
 
@@ -101,6 +106,7 @@ export default function App() {
     setResults([]);
     setProgress({ current: 0, total: 0 });
     setErrorMsg('');
+    setCurrentProcessing('');
   }, []);
 
   const loadSampleData = useCallback(() => {
@@ -117,6 +123,25 @@ export default function App() {
   }, []);
 
   const failedCount = results.filter(r => r.error).length;
+  const successCount = results.filter(r => !r.error).length;
+
+  // Calculate estimated time
+  const getEstimatedTime = (total: number, current: number) => {
+    const remaining = total - current;
+    const avgTimePerPackage = 8; // seconds
+    const totalSeconds = remaining * avgTimePerPackage;
+    
+    if (totalSeconds < 60) {
+      return `~${totalSeconds} detik`;
+    } else if (totalSeconds < 3600) {
+      const minutes = Math.floor(totalSeconds / 60);
+      return `~${minutes} menit`;
+    } else {
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      return `~${hours}j ${minutes}m`;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
@@ -198,11 +223,16 @@ export default function App() {
                   </h2>
                   <div className="mt-2 max-h-32 overflow-y-auto">
                     <div className="flex flex-wrap gap-2">
-                      {packageNames.map((pkg, idx) => (
+                      {packageNames.slice(0, 50).map((pkg, idx) => (
                         <span key={idx} className="px-2 py-1 bg-white/10 rounded text-xs text-gray-300 font-mono">
                           {pkg}
                         </span>
                       ))}
+                      {packageNames.length > 50 && (
+                        <span className="px-2 py-1 bg-blue-500/20 rounded text-xs text-blue-300 font-medium">
+                          +{packageNames.length - 50} more
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -230,7 +260,37 @@ export default function App() {
 
         {/* Progress */}
         {isProcessing && (
-          <ProgressBar current={progress.current} total={progress.total} />
+          <div className="mb-8 space-y-4">
+            <ProgressBar current={progress.current} total={progress.total} />
+            
+            {/* Current Processing Info */}
+            <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
+                  <span className="text-sm text-gray-300">Processing:</span>
+                  <span className="text-sm font-mono text-blue-300">{currentProcessing}</span>
+                </div>
+                <span className="text-sm text-gray-400">
+                  ETA: {getEstimatedTime(progress.total, progress.current)}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-4 mt-3">
+                <div className="bg-white/5 rounded-lg p-3">
+                  <div className="text-xs text-gray-400 mb-1">Total</div>
+                  <div className="text-lg font-bold text-white">{progress.total}</div>
+                </div>
+                <div className="bg-white/5 rounded-lg p-3">
+                  <div className="text-xs text-gray-400 mb-1">Success</div>
+                  <div className="text-lg font-bold text-green-400">{successCount}</div>
+                </div>
+                <div className="bg-white/5 rounded-lg p-3">
+                  <div className="text-xs text-gray-400 mb-1">Failed</div>
+                  <div className="text-lg font-bold text-red-400">{failedCount}</div>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Results */}
@@ -273,12 +333,12 @@ export default function App() {
               <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5">
                 <div className="text-2xl mb-2">📤</div>
                 <h3 className="font-semibold text-white mb-1">1. Upload File</h3>
-                <p className="text-sm text-gray-400">Import file .xlsx yang berisi daftar package name aplikasi Android</p>
+                <p className="text-sm text-gray-400">Import file .xlsx atau input manual tanpa batasan jumlah package</p>
               </div>
               <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5">
                 <div className="text-2xl mb-2">⚙️</div>
                 <h3 className="font-semibold text-white mb-1">2. Process</h3>
-                <p className="text-sm text-gray-400">Sistem akan otomatis scraping data dari Google Play Store dengan retry mechanism</p>
+                <p className="text-sm text-gray-400">Sistem akan process satu per satu dengan retry mechanism</p>
               </div>
               <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5">
                 <div className="text-2xl mb-2">📥</div>
@@ -297,23 +357,39 @@ export default function App() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-green-400 mt-0.5">•</span>
-                  <span>Maksimal 50 package per batch request</span>
+                  <span><strong className="text-white">Tidak ada batasan jumlah package</strong> - bisa input 300+ package sekaligus</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-green-400 mt-0.5">•</span>
-                  <span>Estimasi waktu: ~5-10 detik per package name (dengan retry)</span>
+                  <span>Estimasi waktu: ~8 detik per package (dengan retry mechanism)</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-green-400 mt-0.5">•</span>
-                  <span>Menggunakan 3 metode scraping dengan retry mechanism untuk akurasi maksimal</span>
+                  <span>Menggunakan 3 metode scraping dengan retry untuk akurasi maksimal</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-green-400 mt-0.5">•</span>
                   <span>Jika ada app yang gagal, gunakan tombol "Retry Failed" untuk mencoba ulang</span>
                 </li>
                 <li className="flex items-start gap-2">
+                  <span className="text-blue-400 mt-0.5">💡</span>
+                  <span className="text-blue-300"><strong>Contoh estimasi waktu:</strong></span>
+                </li>
+                <li className="flex items-start gap-2 pl-6">
+                  <span className="text-gray-500">•</span>
+                  <span>50 packages ≈ 7 menit</span>
+                </li>
+                <li className="flex items-start gap-2 pl-6">
+                  <span className="text-gray-500">•</span>
+                  <span>100 packages ≈ 13 menit</span>
+                </li>
+                <li className="flex items-start gap-2 pl-6">
+                  <span className="text-gray-500">•</span>
+                  <span>300 packages ≈ 40 menit</span>
+                </li>
+                <li className="flex items-start gap-2">
                   <span className="text-yellow-400 mt-0.5">⚠️</span>
-                  <span className="text-yellow-300">Google Play mungkin memblokir request jika terlalu banyak. Jika banyak app yang gagal, tunggu beberapa menit lalu coba lagi.</span>
+                  <span className="text-yellow-300">Pastikan koneksi internet stabil dan jangan tutup browser saat proses berjalan</span>
                 </li>
               </ul>
             </div>
@@ -325,7 +401,7 @@ export default function App() {
       <footer className="border-t border-white/10 mt-12">
         <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
           <p className="text-center text-sm text-gray-500">
-            Play Store Scraper • Multi-method scraping with retry • Deploy di Vercel
+            Play Store Scraper • Unlimited packages • Multi-method scraping with retry
           </p>
         </div>
       </footer>
