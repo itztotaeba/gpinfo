@@ -3,8 +3,11 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "functions": {
-    "api/scrape.ts": {
+    "api/scrape.js": {
       "maxDuration": 60
     }
-  }
+  },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/:path*" }
+  ]
 }
