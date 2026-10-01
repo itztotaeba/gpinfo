@@ -6,194 +6,83 @@ import { ProgressBar } from './components/ProgressBar';
 import { ExportButton } from './components/ExportButton';
 import type { AppInfo } from './types';
 
-// Fallback CORS proxy for when the serverless function is unavailable
-const CORS_PROXIES = [
-  'https://api.allorigins.win/raw?url=',
-  'https://corsproxy.io/?',
-];
-
-async function fetchWithProxy(url: string): Promise<string> {
-  // Try direct fetch first (for same-origin)
-  try {
-    const directRes = await fetch(url);
-    if (directRes.ok) return await directRes.text();
-  } catch {}
-
-  // Try CORS proxies
-  for (const proxy of CORS_PROXIES) {
-    try {
-      const res = await fetch(`${proxy}${encodeURIComponent(url)}`);
-      if (res.ok) return await res.text();
-    } catch {}
-  }
-  throw new Error('All fetch methods failed');
-}
-
-function parsePlayStoreHtml(html: string, packageName: string): AppInfo {
-  let appName = '';
-  let publisherName = '';
-  let category = '';
-
-  // App Name
-  const ogTitleMatch = html.match(/<meta\s+property="og:title"\s+content="([^"]+)"/i);
-  if (ogTitleMatch) {
-    appName = ogTitleMatch[1].replace(/\s*-\s*Apps on Google Play$/i, '').replace(/\s*-\s*Games on Google Play$/i, '').trim();
-  }
-  if (!appName) {
-    const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
-    if (titleMatch) {
-      appName = titleMatch[1].replace(/\s*-\s*Apps on Google Play$/i, '').replace(/\s*-\s*Games on Google Play$/i, '').trim();
-    }
-  }
-
-  // Publisher Name
-  const devLinkMatch = html.match(/<a[^>]+href="\/store\/apps\/developer\?id=[^"]*"[^>]*>([^<]+)<\/a>/);
-  if (devLinkMatch) {
-    publisherName = devLinkMatch[1].trim();
-  }
-  if (!publisherName) {
-    const devNameMatch = html.match(/"developer_name"\s*:\s*"([^"]+)"/);
-    if (devNameMatch) {
-      publisherName = devNameMatch[1];
-    }
-  }
-
-  // Category
-  const catLinkMatch = html.match(/\/store\/apps\/category\/([A-Z_]+)[^"]*"[^>]*>([^<]+)</);
-  if (catLinkMatch) {
-    category = catLinkMatch[2].trim();
-  }
-  if (!category) {
-    const catMatch = html.match(/"category"\s*:\s*"([^"]+)"/);
-    if (catMatch) {
-      category = catMatch[1];
-    }
-  }
-  if (!category) {
-    const catUrlMatch = html.match(/\/store\/apps\/category\/([A-Z_]+)/);
-    if (catUrlMatch) {
-      category = catUrlMatch[1].replace(/_/g, ' ');
-    }
-  }
-
-  return {
-    packageName,
-    appName: appName || 'Unknown',
-    publisherName: publisherName || 'Not found',
-    category: category || 'Not found',
-  };
-}
-
 export default function App() {
   const [packageNames, setPackageNames] = useState<string[]>([]);
   const [results, setResults] = useState<AppInfo[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeTab, setActiveTab] = useState<'upload' | 'manual'>('upload');
-  const [useFallback, setUseFallback] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string>('');
 
   const handlePackagesLoaded = useCallback((packages: string[]) => {
     setPackageNames(packages);
     setResults([]);
+    setErrorMsg('');
   }, []);
-
-  const scrapeViaAPI = async (batch: string[]): Promise<AppInfo[]> => {
-    const response = await fetch('/api/scrape', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ packageNames: batch }),
-    });
-
-    if (!response.ok) throw new Error(`API error: ${response.status}`);
-    const data = await response.json();
-    return data.results;
-  };
-
-  const scrapeViaFallback = async (packageName: string): Promise<AppInfo> => {
-    const url = `https://play.google.com/store/apps/details?id=${encodeURIComponent(packageName)}&hl=en`;
-    try {
-      const html = await fetchWithProxy(url);
-      return parsePlayStoreHtml(html, packageName);
-    } catch (error: any) {
-      return {
-        packageName,
-        appName: '',
-        publisherName: '',
-        category: '',
-        error: error.message || 'Fallback failed',
-      };
-    }
-  };
 
   const handleScrape = useCallback(async () => {
     if (packageNames.length === 0) return;
 
     setIsProcessing(true);
     setResults([]);
+    setErrorMsg('');
     setProgress({ current: 0, total: packageNames.length });
 
     const allResults: AppInfo[] = [];
-    let apiFailed = false;
+    const batchSize = 5;
 
-    if (!useFallback) {
-      // Try API method first (batch processing)
-      const batchSize = 5;
-      for (let i = 0; i < packageNames.length; i += batchSize) {
-        const batch = packageNames.slice(i, i + batchSize);
-        
-        try {
-          const batchResults = await scrapeViaAPI(batch);
-          allResults.push(...batchResults);
-        } catch (error) {
-          apiFailed = true;
-          // Mark remaining as failed and switch to fallback
-          for (const pkg of batch) {
+    for (let i = 0; i < packageNames.length; i += batchSize) {
+      const batch = packageNames.slice(i, i + batchSize);
+      
+      try {
+        const response = await fetch('/api/scrape', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ packageNames: batch }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          allResults.push(...data.results);
+        } else {
+          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+          setErrorMsg(`API Error: ${errorData.error || response.statusText}`);
+          // Add error entries for this batch
+          batch.forEach(pkg => {
             allResults.push({
               packageName: pkg,
               appName: '',
               publisherName: '',
               category: '',
-              error: 'API failed, switching to fallback...',
+              error: errorData.error || `HTTP ${response.status}`,
             });
-          }
-          break;
+          });
         }
-
-        setProgress({ current: Math.min(i + batchSize, packageNames.length), total: packageNames.length });
-        setResults([...allResults]);
-      }
-    }
-
-    // If API failed or fallback mode is on, use client-side fallback
-    if (apiFailed || useFallback) {
-      const startIndex = useFallback ? 0 : allResults.length;
-      const remaining = packageNames.slice(startIndex);
-      
-      if (useFallback) {
-        allResults.length = 0;
-        setResults([]);
+      } catch (error: any) {
+        setErrorMsg(`Network Error: ${error.message}`);
+        batch.forEach(pkg => {
+          allResults.push({
+            packageName: pkg,
+            appName: '',
+            publisherName: '',
+            category: '',
+            error: 'Network error - check your connection',
+          });
+        });
       }
 
-      for (let i = 0; i < remaining.length; i++) {
-        const result = await scrapeViaFallback(remaining[i]);
-        allResults.push(result);
-        setProgress({ current: startIndex + i + 1, total: packageNames.length });
-        setResults([...allResults]);
-        
-        // Delay between requests
-        if (i < remaining.length - 1) {
-          await new Promise(r => setTimeout(r, 2000));
-        }
-      }
+      setProgress({ current: Math.min(i + batchSize, packageNames.length), total: packageNames.length });
+      setResults([...allResults]);
     }
 
     setIsProcessing(false);
-  }, [packageNames, useFallback]);
+  }, [packageNames]);
 
   const handleReset = useCallback(() => {
     setPackageNames([]);
     setResults([]);
     setProgress({ current: 0, total: 0 });
+    setErrorMsg('');
   }, []);
 
   const loadSampleData = useCallback(() => {
@@ -206,6 +95,7 @@ export default function App() {
     ];
     setPackageNames(samples);
     setResults([]);
+    setErrorMsg('');
   }, []);
 
   return (
@@ -226,6 +116,13 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+        {/* Error Message */}
+        {errorMsg && (
+          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
+            <p className="text-red-300 text-sm">⚠️ {errorMsg}</p>
+          </div>
+        )}
+
         {/* Input Section */}
         {packageNames.length === 0 && !isProcessing && (
           <div className="mb-8">
@@ -266,23 +163,6 @@ export default function App() {
               ) : (
                 <ManualInput onPackagesLoaded={handlePackagesLoaded} />
               )}
-            </div>
-
-            {/* Fallback Toggle */}
-            <div className="mt-4 flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl p-4">
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={useFallback}
-                  onChange={(e) => setUseFallback(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
-              </label>
-              <div>
-                <p className="text-sm text-white font-medium">Mode Fallback (CORS Proxy)</p>
-                <p className="text-xs text-gray-400">Aktifkan jika method utama gagal. Lebih lambat tapi lebih reliable.</p>
-              </div>
             </div>
           </div>
         )}
@@ -387,7 +267,7 @@ export default function App() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-green-400 mt-0.5">•</span>
-                  <span>Jika hasil "Not found", coba aktifkan Mode Fallback</span>
+                  <span>Menggunakan library <code className="px-1 py-0.5 bg-white/10 rounded text-xs font-mono text-blue-300">google-play-scraper</code> untuk data yang akurat</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-green-400 mt-0.5">•</span>
@@ -403,7 +283,7 @@ export default function App() {
       <footer className="border-t border-white/10 mt-12">
         <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
           <p className="text-center text-sm text-gray-500">
-            Play Store Scraper • Data diambil langsung dari Google Play Store • Deploy di Vercel
+            Play Store Scraper • Powered by google-play-scraper • Deploy di Vercel
           </p>
         </div>
       </footer>
