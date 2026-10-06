@@ -4,342 +4,375 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function randomDelay(min = 500, max = 1500) {
+function randomDelay(min = 300, max = 800) {
   return delay(Math.floor(Math.random() * (max - min + 1)) + min);
 }
 
-// Rotating user agents
-const USER_AGENTS = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+// Multiple Android device profiles - each may return different version
+const DEVICE_PROFILES = [
+  {
+    name: 'Samsung Galaxy S23',
+    userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36',
+    secChUaPlatform: '"Android"',
+    secChUaMobile: '?1',
+    secChUa: '"Chromium";v="124", "Google Chrome";v="124"',
+  },
+  {
+    name: 'Google Pixel 8',
+    userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36',
+    secChUaPlatform: '"Android"',
+    secChUaMobile: '?1',
+    secChUa: '"Chromium";v="124", "Google Chrome";v="124"',
+  },
+  {
+    name: 'Samsung Galaxy A54',
+    userAgent: 'Mozilla/5.0 (Linux; Android 13; SM-A546B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36',
+    secChUaPlatform: '"Android"',
+    secChUaMobile: '?1',
+    secChUa: '"Chromium";v="124", "Google Chrome";v="124"',
+  },
+  {
+    name: 'Xiaomi 13',
+    userAgent: 'Mozilla/5.0 (Linux; Android 14; 2211133G) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36',
+    secChUaPlatform: '"Android"',
+    secChUaMobile: '?1',
+    secChUa: '"Chromium";v="124", "Google Chrome";v="124"',
+  },
+  {
+    name: 'OnePlus 11',
+    userAgent: 'Mozilla/5.0 (Linux; Android 14; CPH2449) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36',
+    secChUaPlatform: '"Android"',
+    secChUaMobile: '?1',
+    secChUa: '"Chromium";v="124", "Google Chrome";v="124"',
+  },
 ];
 
-function getRandomUserAgent() {
-  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+const DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+/**
+ * Extract version from JSON-LD script tag
+ */
+function extractVersionFromJsonLd(html) {
+  const jsonLdMatch = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi);
+  if (!jsonLdMatch) return null;
+
+  for (const script of jsonLdMatch) {
+    const content = script.replace(/<script[^>]*>/i, '').replace(/<\/script>/i, '');
+    try {
+      const data = JSON.parse(content);
+      const candidates = Array.isArray(data) ? data : [data];
+      for (const item of candidates) {
+        if (item.softwareVersion && item.softwareVersion !== 'Varies with device') {
+          return item.softwareVersion;
+        }
+        if (item.version && item.version !== 'Varies with device') {
+          return item.version;
+        }
+      }
+    } catch {
+      // ignore JSON parse errors
+    }
+  }
+  return null;
 }
 
 /**
- * Method 1: Use google-play-scraper library
+ * Extract version from AF_initDataCallback data
+ */
+function extractVersionFromDataCallbacks(html) {
+  // Find all AF_initDataCallback calls
+  const callbackMatches = html.match(/AF_initDataCallback\(\{[^}]*data:([\s\S]*?)\}\);/g);
+  if (!callbackMatches) return null;
+
+  for (const callback of callbackMatches) {
+    // Extract the data portion
+    const dataMatch = callback.match(/data:([\s\S]*?)\}\);/);
+    if (!dataMatch) continue;
+
+    const dataStr = dataMatch[1];
+    
+    // Look for version-like strings in the data
+    // Version numbers typically look like: "1.2.3", "2.24.3.76", etc.
+    const versionPattern = /"(\d+\.\d+[\.\d]*)"/g;
+    let match;
+    const versions = [];
+    
+    while ((match = versionPattern.exec(dataStr)) !== null) {
+      const v = match[1];
+      // Filter reasonable version strings
+      if (v.length < 30 && v.length > 2 && !v.endsWith('.0.0.0')) {
+        versions.push(v);
+      }
+    }
+    
+    // Return the longest version found (most specific)
+    if (versions.length > 0) {
+      versions.sort((a, b) => b.length - a.length);
+      return versions[0];
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract version from HTML elements (hAyfc blocks)
+ */
+function extractVersionFromHTMLBlocks(html) {
+  // Pattern: "Current Version" label followed by version value
+  const blockPattern = /Current [Vv]ersion[\s\S]{0,200}?>(\d+[\d\.]+)</i;
+  const match = html.match(blockPattern);
+  if (match && match[1]) {
+    return match[1].trim();
+  }
+
+  // Alternative: look for htlgb class elements
+  const htlgbPattern = /htlgb[^>]*>(\d+\.\d+[\d\.]*)</g;
+  const versions = [];
+  let m;
+  while ((m = htlgbPattern.exec(html)) !== null) {
+    if (m[1] && m[1].length < 30) {
+      versions.push(m[1]);
+    }
+  }
+  
+  if (versions.length > 0) {
+    // Return the longest version (most specific)
+    versions.sort((a, b) => b.length - a.length);
+    return versions[0];
+  }
+
+  return null;
+}
+
+/**
+ * Extract version from meta tags
+ */
+function extractVersionFromMeta(html) {
+  // Look for softwareVersion meta
+  const metaMatch = html.match(/itemprop="softwareVersion"[^>]*content="([^"]+)"/i)
+    || html.match(/content="([^"]+)"[^>]*itemprop="softwareVersion"/i);
+  if (metaMatch && metaMatch[1] && metaMatch[1] !== 'Varies with device') {
+    return metaMatch[1];
+  }
+  return null;
+}
+
+/**
+ * Extract all app data from HTML
+ */
+function extractAllData(html, packageName) {
+  let appName = '';
+  let publisherName = '';
+  let category = '';
+  let version = '';
+
+  // App Name
+  const ogTitleMatch = html.match(/<meta\s+(?:property|name)="og:title"\s+content="([^"]+)"/i)
+    || html.match(/content="([^"]+)"\s+(?:property|name)="og:title"/i);
+  if (ogTitleMatch) {
+    appName = ogTitleMatch[1]
+      .replace(/\s*[-–—]\s*Apps on Google Play$/i, '')
+      .replace(/\s*[-–—]\s*Games on Google Play$/i, '')
+      .replace(/\s*[-–—]\s*Google Play$/i, '')
+      .trim();
+  }
+  if (!appName) {
+    const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+    if (titleMatch) {
+      appName = titleMatch[1]
+        .replace(/\s*[-–—]\s*Apps on Google Play$/i, '')
+        .replace(/\s*[-–—]\s*Games on Google Play$/i, '')
+        .trim();
+    }
+  }
+
+  // Publisher Name
+  const devLinkMatch = html.match(/href="\/store\/apps\/developer\?id=[^"]*"[^>]*>([^<]+)</i);
+  if (devLinkMatch) {
+    publisherName = devLinkMatch[1].trim();
+  }
+  if (!publisherName) {
+    const devNameMatch = html.match(/"developer_name"\s*:\s*"([^"]+)"/);
+    if (devNameMatch) {
+      publisherName = devNameMatch[1];
+    }
+  }
+
+  // Category
+  const catLinkMatch = html.match(/href="\/store\/apps\/category\/([A-Z_]+)"[^>]*>([^<]+)</i);
+  if (catLinkMatch) {
+    const catText = catLinkMatch[2].trim();
+    const catSlug = catLinkMatch[1];
+    if (catSlug !== 'FAMILY' && catSlug !== 'GAME' && catSlug !== 'APPLICATION') {
+      category = catText || catSlug.replace(/_/g, ' ');
+    }
+  }
+  if (!category || category === 'Family') {
+    const catMatch = html.match(/"category"\s*:\s*"([^"]+)"/);
+    if (catMatch && catMatch[1] !== 'Family') {
+      category = catMatch[1];
+    }
+  }
+
+  // Version - try multiple extraction methods
+  version = extractVersionFromJsonLd(html)
+    || extractVersionFromMeta(html)
+    || extractVersionFromHTMLBlocks(html)
+    || extractVersionFromDataCallbacks(html);
+
+  return {
+    packageName,
+    appName: appName || 'Unknown',
+    publisherName: publisherName || 'Not found',
+    category: category || 'Not found',
+    version: version || 'Varies with device',
+  };
+}
+
+/**
+ * Fetch Play Store page with specific device profile
+ */
+async function fetchPlayStoreWithDevice(packageName, deviceProfile) {
+  const url = `https://play.google.com/store/apps/details?id=${encodeURIComponent(packageName)}&hl=en&gl=us`;
+  
+  const headers = {
+    'User-Agent': deviceProfile.userAgent,
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'identity',
+    'Cache-Control': 'no-cache',
+    'Sec-Ch-Ua': deviceProfile.secChUa,
+    'Sec-Ch-Ua-Mobile': deviceProfile.secChUaMobile,
+    'Sec-Ch-Ua-Platform': deviceProfile.secChUaPlatform,
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
+  };
+
+  const response = await fetch(url, { headers, redirect: 'follow' });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const html = await response.text();
+  
+  if (html.includes('captcha') || html.includes('unusual traffic') || html.length < 5000) {
+    throw new Error('Blocked by Google (CAPTCHA/rate limit)');
+  }
+
+  return html;
+}
+
+/**
+ * Method 1: google-play-scraper library
  */
 async function scrapeWithLibrary(packageName) {
-  try {
-    const appData = await gplay.app({
-      appId: packageName,
-      lang: 'en',
-      country: 'us'
-    });
+  const appData = await gplay.app({
+    appId: packageName,
+    lang: 'en',
+    country: 'us'
+  });
 
-    return {
-      packageName: packageName,
-      appName: appData.title || 'Unknown',
-      publisherName: appData.developer || 'Not found',
-      category: appData.genre || 'Not found',
-      version: appData.version || 'Varies with device',
-    };
-  } catch (error) {
-    throw error;
-  }
+  return {
+    packageName,
+    appName: appData.title || 'Unknown',
+    publisherName: appData.developer || 'Not found',
+    category: appData.genre || 'Not found',
+    version: appData.version || 'Varies with device',
+  };
 }
 
 /**
- * Method 2: Play Store with Android device simulation
- * Simulate Android device to get specific version
+ * Method 2: Device Simulation - try multiple Android devices
+ * Each device may return different version info
  */
 async function scrapeWithDeviceSimulation(packageName) {
-  const url = `https://play.google.com/store/apps/details?id=${encodeURIComponent(packageName)}&hl=en&gl=us`;
-  
-  try {
-    // Simulate Android device headers
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'identity',
-        'Cache-Control': 'no-cache',
-        'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-        'Sec-Ch-Ua-Mobile': '?1',
-        'Sec-Ch-Ua-Platform': '"Android"',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Upgrade-Insecure-Requests': '1',
-        // Simulate device capabilities
-        'X-Requested-With': 'com.android.vending',
-      },
-      redirect: 'follow',
-    });
+  let bestResult = null;
+  let bestVersion = '';
+  let lastError = null;
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const html = await response.text();
-    
-    if (html.includes('captcha') || html.includes('unusual traffic') || html.length < 5000) {
-      throw new Error('Blocked by Google (CAPTCHA/rate limit)');
-    }
-
-    // Parse version with device-specific patterns
-    let version = '';
-    const versionPatterns = [
-      /"version"\s*:\s*"([^"]+)"/,
-      /Current Version[^>]*>[^<]*<[^>]*>([^<]+)</i,
-      /softwareVersion[^>]*>[^<]*<[^>]*>([^<]+)</i,
-      /itemprop="softwareVersion"[^>]*>([^<]+)</i,
-      /"software_version"\s*:\s*"([^"]+)"/,
-    ];
-    
-    for (const pattern of versionPatterns) {
-      const match = html.match(pattern);
-      if (match && match[1]) {
-        const v = match[1].trim();
-        // Accept if it's not "Varies with device" and looks like a version number
-        if (v && v !== 'Varies with device' && v.length < 30 && /\d/.test(v)) {
-          version = v;
-          break;
+  // Try each device profile
+  for (const device of DEVICE_PROFILES) {
+    try {
+      const html = await fetchPlayStoreWithDevice(packageName, device);
+      const result = extractAllData(html, packageName);
+      
+      // If we got a real version number (not "Varies with device"), use it
+      if (result.version !== 'Varies with device' && result.version.length > 0) {
+        console.log(`[${packageName}] ${device.name}: Got version ${result.version}`);
+        // Prefer longer/more specific versions
+        if (result.version.length > bestVersion.length) {
+          bestResult = result;
+          bestVersion = result.version;
+        }
+        // If we got a good version, no need to try more devices
+        if (bestVersion.length > 5) {
+          return bestResult;
         }
       }
-    }
-
-    if (!version) {
-      throw new Error('Version not found with device simulation');
-    }
-
-    // Also parse other data
-    let appName = '';
-    const ogTitleMatch = html.match(/<meta\s+(?:property|name)="og:title"\s+content="([^"]+)"/i)
-      || html.match(/content="([^"]+)"\s+(?:property|name)="og:title"/i);
-    if (ogTitleMatch) {
-      appName = ogTitleMatch[1]
-        .replace(/\s*[-–—]\s*Apps on Google Play$/i, '')
-        .replace(/\s*[-–—]\s*Games on Google Play$/i, '')
-        .trim();
-    }
-
-    let publisherName = '';
-    const devLinkMatch = html.match(/href="\/store\/apps\/developer\?id=[^"]*"[^>]*>([^<]+)</i);
-    if (devLinkMatch) {
-      publisherName = devLinkMatch[1].trim();
-    }
-
-    let category = '';
-    const catLinkMatch = html.match(/href="\/store\/apps\/category\/([A-Z_]+)"[^>]*>([^<]+)</i);
-    if (catLinkMatch) {
-      const catText = catLinkMatch[2].trim();
-      const catSlug = catLinkMatch[1];
-      if (catSlug !== 'FAMILY' && catSlug !== 'GAME' && catSlug !== 'APPLICATION') {
-        category = catText || catSlug.replace(/_/g, ' ');
+      
+      // Keep the first result as fallback
+      if (!bestResult) {
+        bestResult = result;
       }
+    } catch (error) {
+      lastError = error;
+      continue;
     }
-
-    return {
-      packageName: packageName,
-      appName: appName || 'Unknown',
-      publisherName: publisherName || 'Not found',
-      category: category || 'Not found',
-      version: version,
-    };
-  } catch (error) {
-    throw error;
+    
+    // Small delay between device attempts
+    await delay(200);
   }
+
+  if (bestResult && bestResult.version !== 'Varies with device') {
+    return bestResult;
+  }
+
+  throw lastError || new Error('All device profiles failed');
 }
 
 /**
- * Method 3: APKMirror - Get version from APKMirror
+ * Method 3: Desktop fetch (sometimes has different data)
  */
-async function scrapeFromAPKMirror(packageName) {
-  try {
-    const url = `https://www.apkmirror.com/apk/${packageName.replace(/\./g, '-')}/`;
-    
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': getRandomUserAgent(),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-      redirect: 'follow',
-    });
-
-    if (!response.ok) {
-      throw new Error(`APKMirror HTTP ${response.status}`);
-    }
-
-    const html = await response.text();
-    
-    // Parse latest version from APKMirror
-    const versionMatch = html.match(/<span[^>]*class="[^"]*app-version[^"]*"[^>]*>([^<]+)</i)
-      || html.match(/<div[^>]*class="[^"]*version[^"]*"[^>]*>([^<]+)</i)
-      || html.match(/Version:\s*([^<\n]+)/i);
-    
-    if (versionMatch && versionMatch[1]) {
-      const version = versionMatch[1].trim();
-      if (version && version.length < 30 && /\d/.test(version)) {
-        return {
-          packageName: packageName,
-          appName: 'Unknown',
-          publisherName: 'Not found',
-          category: 'Not found',
-          version: version,
-        };
-      }
-    }
-
-    throw new Error('Version not found on APKMirror');
-  } catch (error) {
-    throw error;
-  }
-}
-
-/**
- * Method 4: APKPure - Get version from APKPure
- */
-async function scrapeFromAPKPure(packageName) {
-  try {
-    const url = `https://apkpure.com/${packageName.replace(/\./g, '-')}/${packageName}`;
-    
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': getRandomUserAgent(),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-      redirect: 'follow',
-    });
-
-    if (!response.ok) {
-      throw new Error(`APKPure HTTP ${response.status}`);
-    }
-
-    const html = await response.text();
-    
-    // Parse latest version from APKPure
-    const versionMatch = html.match(/<div[^>]*class="[^"]*version[^"]*"[^>]*>([^<]+)</i)
-      || html.match(/<span[^>]*itemprop="softwareVersion"[^>]*>([^<]+)</i)
-      || html.match(/Version:\s*([^<\n]+)/i);
-    
-    if (versionMatch && versionMatch[1]) {
-      const version = versionMatch[1].trim();
-      if (version && version.length < 30 && /\d/.test(version)) {
-        return {
-          packageName: packageName,
-          appName: 'Unknown',
-          publisherName: 'Not found',
-          category: 'Not found',
-          version: version,
-        };
-      }
-    }
-
-    throw new Error('Version not found on APKPure');
-  } catch (error) {
-    throw error;
-  }
-}
-
-/**
- * Method 5: Regular fetch without device simulation
- */
-async function scrapeWithFetch(packageName) {
+async function scrapeWithDesktop(packageName) {
   const url = `https://play.google.com/store/apps/details?id=${encodeURIComponent(packageName)}&hl=en&gl=us`;
   
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': getRandomUserAgent(),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'identity',
-        'Cache-Control': 'no-cache',
-        'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': '"Windows"',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Upgrade-Insecure-Requests': '1',
-      },
-      redirect: 'follow',
-    });
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': DESKTOP_UA,
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Accept-Encoding': 'identity',
+      'Sec-Ch-Ua': '"Chromium";v="124", "Google Chrome";v="124"',
+      'Sec-Ch-Ua-Mobile': '?0',
+      'Sec-Ch-Ua-Platform': '"Windows"',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'Upgrade-Insecure-Requests': '1',
+    },
+    redirect: 'follow',
+  });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const html = await response.text();
-    
-    if (html.includes('captcha') || html.includes('unusual traffic') || html.length < 5000) {
-      throw new Error('Blocked by Google (CAPTCHA/rate limit)');
-    }
-
-    // Parse all data
-    let appName = '';
-    const ogTitleMatch = html.match(/<meta\s+(?:property|name)="og:title"\s+content="([^"]+)"/i)
-      || html.match(/content="([^"]+)"\s+(?:property|name)="og:title"/i);
-    if (ogTitleMatch) {
-      appName = ogTitleMatch[1]
-        .replace(/\s*[-–—]\s*Apps on Google Play$/i, '')
-        .replace(/\s*[-–—]\s*Games on Google Play$/i, '')
-        .trim();
-    }
-
-    let publisherName = '';
-    const devLinkMatch = html.match(/href="\/store\/apps\/developer\?id=[^"]*"[^>]*>([^<]+)</i);
-    if (devLinkMatch) {
-      publisherName = devLinkMatch[1].trim();
-    }
-
-    let category = '';
-    const catLinkMatch = html.match(/href="\/store\/apps\/category\/([A-Z_]+)"[^>]*>([^<]+)</i);
-    if (catLinkMatch) {
-      const catText = catLinkMatch[2].trim();
-      const catSlug = catLinkMatch[1];
-      if (catSlug !== 'FAMILY' && catSlug !== 'GAME' && catSlug !== 'APPLICATION') {
-        category = catText || catSlug.replace(/_/g, ' ');
-      }
-    }
-
-    let version = 'Varies with device';
-    const versionPatterns = [
-      /"version"\s*:\s*"([^"]+)"/,
-      /Current Version[^>]*>[^<]*<[^>]*>([^<]+)</i,
-      /softwareVersion[^>]*>[^<]*<[^>]*>([^<]+)</i,
-      /itemprop="softwareVersion"[^>]*>([^<]+)</i,
-    ];
-    
-    for (const pattern of versionPatterns) {
-      const match = html.match(pattern);
-      if (match && match[1]) {
-        const v = match[1].trim();
-        if (v && v !== 'Varies with device' && v.length < 30) {
-          version = v;
-          break;
-        }
-      }
-    }
-
-    return {
-      packageName: packageName,
-      appName: appName || 'Unknown',
-      publisherName: publisherName || 'Not found',
-      category: category || 'Not found',
-      version: version,
-    };
-  } catch (error) {
-    throw error;
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  
+  const html = await response.text();
+  if (html.includes('captcha') || html.includes('unusual traffic') || html.length < 5000) {
+    throw new Error('Blocked by Google');
   }
+
+  return extractAllData(html, packageName);
 }
 
 /**
- * Method 6: Try with different country codes
+ * Method 4: Try different countries with library
  */
 async function scrapeWithDifferentCountry(packageName) {
-  const countries = ['us', 'gb', 'id', 'sg', 'au'];
+  const countries = ['id', 'us', 'gb', 'sg', 'au', 'jp', 'kr', 'de', 'br', 'in'];
   
   for (const country of countries) {
     try {
@@ -349,14 +382,19 @@ async function scrapeWithDifferentCountry(packageName) {
         country: country
       });
 
-      return {
-        packageName: packageName,
+      const result = {
+        packageName,
         appName: appData.title || 'Unknown',
         publisherName: appData.developer || 'Not found',
         category: appData.genre || 'Not found',
         version: appData.version || 'Varies with device',
       };
-    } catch (error) {
+
+      // If we got a real version, return immediately
+      if (result.version !== 'Varies with device') {
+        return result;
+      }
+    } catch {
       continue;
     }
   }
@@ -365,109 +403,85 @@ async function scrapeWithDifferentCountry(packageName) {
 }
 
 /**
- * Main scraping function with retry and fallback
- * Optimized for speed: Library -> Device Simulation -> APKMirror -> Regular Fetch
+ * Main scraping function
+ * Strategy: 
+ * 1. Library (fast, get basic data)
+ * 2. Device Simulation (try 5 Android devices for real version)
+ * 3. Desktop fetch (alternative parsing)
+ * 4. Different countries (last resort)
  */
-async function scrapeApp(packageName, maxRetries = 2) {
+async function scrapeApp(packageName) {
+  let finalResult = null;
   let lastError = null;
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+
+  // === STEP 1: Library (get basic data) ===
+  try {
+    finalResult = await scrapeWithLibrary(packageName);
+    console.log(`[${packageName}] Library: version=${finalResult.version}`);
+  } catch (error) {
+    console.log(`[${packageName}] Library failed: ${error.message}`);
+    lastError = error;
+  }
+
+  // === STEP 2: If version is "Varies with device", try device simulation ===
+  if (!finalResult || finalResult.version === 'Varies with device') {
     try {
-      console.log(`[${packageName}] Attempt ${attempt}/${maxRetries}`);
+      console.log(`[${packageName}] Trying device simulation...`);
+      const deviceResult = await scrapeWithDeviceSimulation(packageName);
+      console.log(`[${packageName}] Device simulation: version=${deviceResult.version}`);
       
-      // Method 1: Library (fastest, get all data)
-      try {
-        const result = await scrapeWithLibrary(packageName);
-        console.log(`[${packageName}] Success with library, version: ${result.version}`);
-        
-        // If version is "Varies with device", try to get real version
-        if (result.version === 'Varies with device') {
-          console.log(`[${packageName}] Version is "Varies with device", trying device simulation...`);
-          try {
-            const deviceResult = await scrapeWithDeviceSimulation(packageName);
-            if (deviceResult.version !== 'Varies with device') {
-              result.version = deviceResult.version;
-              console.log(`[${packageName}] Got real version from device simulation: ${result.version}`);
-            }
-          } catch (devError) {
-            console.log(`[${packageName}] Device simulation failed: ${devError.message}`);
-            // Try APKMirror as fallback for version
-            try {
-              const apkMirrorResult = await scrapeFromAPKMirror(packageName);
-              result.version = apkMirrorResult.version;
-              console.log(`[${packageName}] Got version from APKMirror: ${result.version}`);
-            } catch (apkError) {
-              console.log(`[${packageName}] APKMirror also failed: ${apkError.message}`);
-            }
-          }
+      if (deviceResult.version !== 'Varies with device') {
+        // Got real version from device simulation!
+        if (finalResult) {
+          finalResult.version = deviceResult.version;
+        } else {
+          finalResult = deviceResult;
         }
-        
-        return result;
-      } catch (error) {
-        console.log(`[${packageName}] Library failed: ${error.message}`);
-        lastError = error;
+      } else if (!finalResult) {
+        finalResult = deviceResult;
       }
-
-      await randomDelay(500, 1000);
-
-      // Method 2: Device Simulation (get all data + real version)
-      try {
-        const result = await scrapeWithDeviceSimulation(packageName);
-        console.log(`[${packageName}] Success with device simulation, version: ${result.version}`);
-        return result;
-      } catch (error) {
-        console.log(`[${packageName}] Device simulation failed: ${error.message}`);
-        lastError = error;
-      }
-
-      await randomDelay(500, 1000);
-
-      // Method 3: APKMirror (get version only) + Regular Fetch (get other data)
-      try {
-        const apkMirrorResult = await scrapeFromAPKMirror(packageName);
-        console.log(`[${packageName}] Got version from APKMirror: ${apkMirrorResult.version}`);
-        
-        try {
-          const fullData = await scrapeWithFetch(packageName);
-          return {
-            ...fullData,
-            version: apkMirrorResult.version,
-          };
-        } catch {
-          return apkMirrorResult;
-        }
-      } catch (error) {
-        console.log(`[${packageName}] APKMirror failed: ${error.message}`);
-        lastError = error;
-      }
-
-      await randomDelay(500, 1000);
-
-      // Method 4: Regular Fetch (get all data)
-      try {
-        const result = await scrapeWithFetch(packageName);
-        console.log(`[${packageName}] Success with fetch, version: ${result.version}`);
-        return result;
-      } catch (error) {
-        console.log(`[${packageName}] Fetch failed: ${error.message}`);
-        lastError = error;
-      }
-
-      if (attempt < maxRetries) {
-        const waitTime = attempt * 2000;
-        console.log(`[${packageName}] All methods failed, waiting ${Math.round(waitTime/1000)}s before retry...`);
-        await delay(waitTime);
-      }
-      
     } catch (error) {
-      console.error(`[${packageName}] Unexpected error on attempt ${attempt}:`, error.message);
+      console.log(`[${packageName}] Device simulation failed: ${error.message}`);
       lastError = error;
     }
   }
 
-  console.error(`[${packageName}] All ${maxRetries} attempts failed`);
+  // === STEP 3: If still "Varies with device", try desktop fetch ===
+  if (finalResult && finalResult.version === 'Varies with device') {
+    try {
+      console.log(`[${packageName}] Trying desktop fetch...`);
+      await randomDelay();
+      const desktopResult = await scrapeWithDesktop(packageName);
+      console.log(`[${packageName}] Desktop: version=${desktopResult.version}`);
+      
+      if (desktopResult.version !== 'Varies with device') {
+        finalResult.version = desktopResult.version;
+      }
+    } catch (error) {
+      console.log(`[${packageName}] Desktop fetch failed: ${error.message}`);
+      lastError = error;
+    }
+  }
+
+  // === STEP 4: If still no data at all, try different countries ===
+  if (!finalResult) {
+    try {
+      console.log(`[${packageName}] Trying different countries...`);
+      finalResult = await scrapeWithDifferentCountry(packageName);
+      console.log(`[${packageName}] Country: version=${finalResult.version}`);
+    } catch (error) {
+      console.log(`[${packageName}] Different countries failed: ${error.message}`);
+      lastError = error;
+    }
+  }
+
+  // === FINAL: Return result or error ===
+  if (finalResult) {
+    return finalResult;
+  }
+
   return {
-    packageName: packageName,
+    packageName,
     appName: '',
     publisherName: '',
     category: '',

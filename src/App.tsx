@@ -383,23 +383,31 @@ export default function App() {
                 </li>
                 <li className="flex items-start gap-2 pl-6">
                   <span className="text-gray-500">•</span>
-                  <span>Sistem akan mencoba <strong className="text-white">4 metode</strong> untuk mendapatkan versi asli:</span>
+                  <span>Sistem mencoba <strong className="text-white">4 metode berurutan</strong> untuk mendapatkan versi asli:</span>
                 </li>
                 <li className="flex items-start gap-2 pl-10">
                   <span className="text-gray-600">1.</span>
-                  <span>Google Play Store Library</span>
+                  <span><strong className="text-white">Library</strong> - google-play-scraper API</span>
                 </li>
                 <li className="flex items-start gap-2 pl-10">
                   <span className="text-gray-600">2.</span>
-                  <span>Device Simulation (simulasi Android device)</span>
+                  <span><strong className="text-white">Device Simulation</strong> - Simulasi 5 Android device (Samsung S23, Pixel 8, Galaxy A54, Xiaomi 13, OnePlus 11)</span>
                 </li>
                 <li className="flex items-start gap-2 pl-10">
                   <span className="text-gray-600">3.</span>
-                  <span>APKMirror (database APK versi spesifik)</span>
+                  <span><strong className="text-white">Desktop Fetch</strong> - Parsing JSON-LD & HTML blocks</span>
                 </li>
                 <li className="flex items-start gap-2 pl-10">
                   <span className="text-gray-600">4.</span>
-                  <span>Direct HTML Parsing</span>
+                  <span><strong className="text-white">Multi-Country</strong> - Coba 10 country berbeda</span>
+                </li>
+                <li className="flex items-start gap-2 pl-6">
+                  <span className="text-gray-500">•</span>
+                  <span>Setiap device simulation menggunakan <strong className="text-white">User-Agent Android Mobile</strong> + <strong className="text-white">Sec-CH-UA headers</strong></span>
+                </li>
+                <li className="flex items-start gap-2 pl-6">
+                  <span className="text-gray-500">•</span>
+                  <span>Extract versi dari: <strong className="text-white">JSON-LD</strong>, <strong className="text-white">AF_initDataCallback</strong>, <strong className="text-white">HTML blocks</strong>, <strong className="text-white">Meta tags</strong></span>
                 </li>
                 <li className="flex items-start gap-2 pl-6">
                   <span className="text-gray-500">•</span>
