@@ -383,15 +383,27 @@ export default function App() {
                 </li>
                 <li className="flex items-start gap-2 pl-6">
                   <span className="text-gray-500">•</span>
-                  <span>Beberapa app menampilkan versi spesifik (contoh: <code className="px-1 py-0.5 bg-white/10 rounded text-xs font-mono">2.13.1</code>)</span>
+                  <span>Sistem akan mencoba <strong className="text-white">4 metode</strong> untuk mendapatkan versi asli:</span>
+                </li>
+                <li className="flex items-start gap-2 pl-10">
+                  <span className="text-gray-600">1.</span>
+                  <span>Google Play Store Library</span>
+                </li>
+                <li className="flex items-start gap-2 pl-10">
+                  <span className="text-gray-600">2.</span>
+                  <span>Device Simulation (simulasi Android device)</span>
+                </li>
+                <li className="flex items-start gap-2 pl-10">
+                  <span className="text-gray-600">3.</span>
+                  <span>APKMirror (database APK versi spesifik)</span>
+                </li>
+                <li className="flex items-start gap-2 pl-10">
+                  <span className="text-gray-600">4.</span>
+                  <span>Direct HTML Parsing</span>
                 </li>
                 <li className="flex items-start gap-2 pl-6">
                   <span className="text-gray-500">•</span>
-                  <span>Beberapa app menampilkan <code className="px-1 py-0.5 bg-white/10 rounded text-xs font-mono">Varies with device</code> - ini berarti versi berbeda per device</span>
-                </li>
-                <li className="flex items-start gap-2 pl-6">
-                  <span className="text-gray-500">•</span>
-                  <span><strong className="text-yellow-300">Login Google TIDK diperlukan</strong> - "Varies with device" memang berarti versi berbeda per device, bukan karena belum login</span>
+                  <span>Jika semua metode gagal, akan tampil <code className="px-1 py-0.5 bg-white/10 rounded text-xs font-mono">Varies with device</code></span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-blue-400 mt-0.5">💡</span>
