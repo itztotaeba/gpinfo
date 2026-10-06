@@ -77,27 +77,35 @@ function extractVersionFromJsonLd(html) {
 }
 
 /**
- * Extract version from HTML elements
+ * Extract version from HTML elements - IMPROVED REGEX
+ * Now captures versions with letters, hyphens, and more flexible patterns
  */
 function extractVersionFromHTML(html) {
-  // Pattern: "Current Version" label followed by version value
-  const blockPattern = /Current [Vv]ersion[\s\S]{0,200}?>(\d+[\d\.]+)</i;
+  // IMPROVED: Pattern now captures letters, hyphens, and more flexible version formats
+  // Examples: "1.2.3", "2.0a", "1.2.3-beta", "3.0.0-rc1"
+  const blockPattern = /Current\s+Version[\s\S]{0,300}?>([\d\.a-zA-Z\-]+)</i;
   const match = html.match(blockPattern);
   if (match && match[1]) {
-    return match[1].trim();
+    const version = match[1].trim();
+    // Validate it looks like a version (contains at least one digit)
+    if (/\d/.test(version) && version.length < 30) {
+      return version;
+    }
   }
 
-  // Alternative: look for htlgb class elements
-  const htlgbPattern = /htlgb[^>]*>(\d+\.\d+[\d\.]*)</g;
+  // Alternative: look for htlgb class elements with more flexible pattern
+  const htlgbPattern = /htlgb[^>]*>([\d\.a-zA-Z\-]+)</g;
   const versions = [];
   let m;
   while ((m = htlgbPattern.exec(html)) !== null) {
-    if (m[1] && m[1].length < 30) {
-      versions.push(m[1]);
+    const version = m[1].trim();
+    if (version && version.length < 30 && /\d/.test(version)) {
+      versions.push(version);
     }
   }
   
   if (versions.length > 0) {
+    // Sort by length (prefer longer/more specific versions)
     versions.sort((a, b) => b.length - a.length);
     return versions[0];
   }
@@ -354,16 +362,15 @@ async function scrapeWithDifferentCountry(packageName) {
 }
 
 /**
- * Method 5: Scrape from APKMirror (external source with specific versions)
+ * Method 5: Scrape from APKMirror - IMPROVED with official search endpoint
+ * Uses APKMirror's search API instead of guessing URL structure
  */
 async function scrapeFromAPKMirror(packageName) {
   try {
-    // Convert package name to APKMirror URL format
-    // com.whatsapp -> com/whatsapp
-    const urlParts = packageName.split('.');
-    const mirrorUrl = `https://www.apkmirror.com/apk/${urlParts[0]}/${urlParts.slice(1).join('-')}/`;
+    // Use official APKMirror search endpoint
+    const searchUrl = `https://www.apkmirror.com/?post_type=app_release&searchtype=app&s=${encodeURIComponent(packageName)}`;
     
-    const response = await fetch(mirrorUrl, {
+    const response = await fetch(searchUrl, {
       headers: {
         'User-Agent': DESKTOP_UA,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -378,13 +385,13 @@ async function scrapeFromAPKMirror(packageName) {
 
     const html = await response.text();
     
-    // Extract latest version from APKMirror
-    // Look for version in various patterns
+    // Extract version from search results
+    // Look for version in appRowVersion class or similar patterns
     const versionPatterns = [
-      /<span[^>]*class="[^"]*app-version[^"]*"[^>]*>([^<]+)</i,
-      /<div[^>]*class="[^"]*version[^"]*"[^>]*>([^<]+)</i,
+      /appRowVersion[^>]*>([^<]+)</i,
+      /class="[^"]*version[^"]*"[^>]*>([^<]+)</i,
       /Version:\s*([^<\n]+)/i,
-      /<a[^>]*href="[^"]*"[^>]*>(\d+\.\d+[\d\.]*)<\/a>/i,
+      /<span[^>]*>(\d+\.\d+[\.\d\w\-]*)<\/span>/i,
     ];
     
     for (const pattern of versionPatterns) {
@@ -411,13 +418,15 @@ async function scrapeFromAPKMirror(packageName) {
 }
 
 /**
- * Method 6: Scrape from APKPure (external source)
+ * Method 6: Scrape from APKCombo - REPLACED from APKPure
+ * APKCombo is more stable for fallback
  */
-async function scrapeFromAPKPure(packageName) {
+async function scrapeFromAPKCombo(packageName) {
   try {
-    const url = `https://apkpure.com/${packageName.replace(/\./g, '-')}/${packageName}`;
+    // Use APKCombo search endpoint
+    const searchUrl = `https://apkcombo.com/search/?q=${encodeURIComponent(packageName)}`;
     
-    const response = await fetch(url, {
+    const response = await fetch(searchUrl, {
       headers: {
         'User-Agent': DESKTOP_UA,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -427,16 +436,19 @@ async function scrapeFromAPKPure(packageName) {
     });
 
     if (!response.ok) {
-      throw new Error(`APKPure HTTP ${response.status}`);
+      throw new Error(`APKCombo HTTP ${response.status}`);
     }
 
     const html = await response.text();
     
-    // Extract version from APKPure
+    // Extract version from search results
+    // Look for version badge or download link
     const versionPatterns = [
-      /<div[^>]*class="[^"]*version[^"]*"[^>]*>([^<]+)</i,
-      /<span[^>]*itemprop="softwareVersion"[^>]*>([^<]+)</i,
+      /class="[^"]*version[^"]*"[^>]*>([^<]+)</i,
+      /itemprop="softwareVersion"[^>]*>([^<]+)</i,
       /Version:\s*([^<\n]+)/i,
+      /data-version="([^"]+)"/i,
+      /<span[^>]*>(\d+\.\d+[\.\d\w\-]*)<\/span>/i,
     ];
     
     for (const pattern of versionPatterns) {
@@ -444,7 +456,7 @@ async function scrapeFromAPKPure(packageName) {
       if (match && match[1]) {
         const version = match[1].trim();
         if (version && version.length < 30 && /\d/.test(version)) {
-          console.log(`[${packageName}] APKPure: Got version ${version}`);
+          console.log(`[${packageName}] APKCombo: Got version ${version}`);
           return {
             packageName,
             appName: 'Unknown',
@@ -456,7 +468,7 @@ async function scrapeFromAPKPure(packageName) {
       }
     }
 
-    throw new Error('Version not found on APKPure');
+    throw new Error('Version not found on APKCombo');
   } catch (error) {
     throw error;
   }
@@ -464,6 +476,7 @@ async function scrapeFromAPKPure(packageName) {
 
 /**
  * Main scraping function - tries ALL methods to get version
+ * Order: Library -> Device Simulation -> Desktop -> APKMirror -> APKCombo -> Multi-Country
  */
 async function scrapeApp(packageName) {
   let finalResult = null;
@@ -536,19 +549,19 @@ async function scrapeApp(packageName) {
     }
   }
 
-  // === STEP 5: APKPure (if still "Varies with device") ===
+  // === STEP 5: APKCombo (if still "Varies with device") ===
   if (finalResult && finalResult.version === 'Varies with device') {
     try {
-      console.log(`[Step 5] Trying APKPure...`);
+      console.log(`[Step 5] Trying APKCombo...`);
       await randomDelay();
-      const apkPureResult = await scrapeFromAPKPure(packageName);
-      console.log(`[Step 5] APKPure: version=${apkPureResult.version}`);
+      const apkComboResult = await scrapeFromAPKCombo(packageName);
+      console.log(`[Step 5] APKCombo: version=${apkComboResult.version}`);
       
-      if (apkPureResult.version !== 'Varies with device') {
-        finalResult.version = apkPureResult.version;
+      if (apkComboResult.version !== 'Varies with device') {
+        finalResult.version = apkComboResult.version;
       }
     } catch (error) {
-      console.log(`[Step 5] APKPure failed: ${error.message}`);
+      console.log(`[Step 5] APKCombo failed: ${error.message}`);
       lastError = error;
     }
   }
