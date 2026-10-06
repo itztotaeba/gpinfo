@@ -39,6 +39,7 @@ export default function App() {
           appName: '',
           publisherName: '',
           category: '',
+          version: '',
           error: errorData.error || `HTTP ${response.status}`,
         };
       }
@@ -48,6 +49,7 @@ export default function App() {
         appName: '',
         publisherName: '',
         category: '',
+        version: '',
         error: `Network error: ${error.message}`,
       };
     }
@@ -361,6 +363,10 @@ export default function App() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-green-400 mt-0.5">•</span>
+                  <span>Data yang diambil: <strong className="text-white">App Name, Publisher, Category, Version</strong></span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400 mt-0.5">•</span>
                   <span>Estimasi waktu: ~8 detik per package (dengan retry mechanism)</span>
                 </li>
                 <li className="flex items-start gap-2">
@@ -370,6 +376,22 @@ export default function App() {
                 <li className="flex items-start gap-2">
                   <span className="text-green-400 mt-0.5">•</span>
                   <span>Jika ada app yang gagal, gunakan tombol "Retry Failed" untuk mencoba ulang</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-400 mt-0.5">💡</span>
+                  <span className="text-blue-300"><strong>Tentang Versi Aplikasi:</strong></span>
+                </li>
+                <li className="flex items-start gap-2 pl-6">
+                  <span className="text-gray-500">•</span>
+                  <span>Beberapa app menampilkan versi spesifik (contoh: <code className="px-1 py-0.5 bg-white/10 rounded text-xs font-mono">2.13.1</code>)</span>
+                </li>
+                <li className="flex items-start gap-2 pl-6">
+                  <span className="text-gray-500">•</span>
+                  <span>Beberapa app menampilkan <code className="px-1 py-0.5 bg-white/10 rounded text-xs font-mono">Varies with device</code> - ini berarti versi berbeda per device</span>
+                </li>
+                <li className="flex items-start gap-2 pl-6">
+                  <span className="text-gray-500">•</span>
+                  <span><strong className="text-yellow-300">Login Google TIDK diperlukan</strong> - "Varies with device" memang berarti versi berbeda per device, bukan karena belum login</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-blue-400 mt-0.5">💡</span>

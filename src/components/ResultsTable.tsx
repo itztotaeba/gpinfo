@@ -27,6 +27,9 @@ export function ResultsTable({ results }: ResultsTableProps) {
                 Category
               </th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                Version
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
                 Status
               </th>
             </tr>
@@ -55,6 +58,11 @@ export function ResultsTable({ results }: ResultsTableProps) {
                 <td className="px-4 py-3">
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-500/20 text-purple-300">
                     {result.category || '-'}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <span className="text-sm font-mono text-yellow-300">
+                    {result.version || '-'}
                   </span>
                 </td>
                 <td className="px-4 py-3">

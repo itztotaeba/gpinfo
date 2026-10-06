@@ -37,6 +37,7 @@ async function scrapeWithLibrary(packageName) {
       appName: appData.title || 'Unknown',
       publisherName: appData.developer || 'Not found',
       category: appData.genre || 'Not found',
+      version: appData.version || 'Varies with device',
     };
   } catch (error) {
     throw error;
@@ -131,11 +132,33 @@ async function scrapeWithFetch(packageName) {
       }
     }
 
+    // Parse version
+    let version = 'Varies with device';
+    // Look for version in various patterns
+    const versionPatterns = [
+      /"version"\s*:\s*"([^"]+)"/,
+      /Current Version[^>]*>[^<]*<[^>]*>([^<]+)</i,
+      /softwareVersion[^>]*>[^<]*<[^>]*>([^<]+)</i,
+      /itemprop="softwareVersion"[^>]*>([^<]+)</i,
+    ];
+    
+    for (const pattern of versionPatterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        const v = match[1].trim();
+        if (v && v !== 'Varies with device' && v.length < 30) {
+          version = v;
+          break;
+        }
+      }
+    }
+
     return {
       packageName: packageName,
       appName: appName || 'Unknown',
       publisherName: publisherName || 'Not found',
       category: category || 'Not found',
+      version: version,
     };
   } catch (error) {
     throw error;
@@ -161,6 +184,7 @@ async function scrapeWithDifferentCountry(packageName) {
         appName: appData.title || 'Unknown',
         publisherName: appData.developer || 'Not found',
         category: appData.genre || 'Not found',
+        version: appData.version || 'Varies with device',
       };
     } catch (error) {
       // Try next country
@@ -237,6 +261,7 @@ async function scrapeApp(packageName, maxRetries = 3) {
     appName: '',
     publisherName: '',
     category: '',
+    version: '',
     error: lastError?.message || 'All scraping methods failed',
   };
 }
