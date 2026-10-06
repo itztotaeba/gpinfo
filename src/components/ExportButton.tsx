@@ -13,6 +13,7 @@ export function ExportButton({ results }: ExportButtonProps) {
       'App Name': result.appName || '',
       'Publisher Name': result.publisherName || '',
       'Category': result.category || '',
+      'Version': result.version || '',
       'Status': result.error ? `Error: ${result.error}` : 'Success',
     }));
 
@@ -26,6 +27,7 @@ export function ExportButton({ results }: ExportButtonProps) {
       { wch: 40 },
       { wch: 30 },
       { wch: 30 },
+      { wch: 20 },
       { wch: 20 },
       { wch: 15 },
     ];
