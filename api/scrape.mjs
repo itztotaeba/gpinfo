@@ -4,11 +4,11 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function randomDelay(min = 300, max = 800) {
+function randomDelay(min = 200, max = 600) {
   return delay(Math.floor(Math.random() * (max - min + 1)) + min);
 }
 
-// Multiple Android device profiles - each may return different version
+// Multiple Android device profiles
 const DEVICE_PROFILES = [
   {
     name: 'Samsung Galaxy S23',
@@ -77,47 +77,9 @@ function extractVersionFromJsonLd(html) {
 }
 
 /**
- * Extract version from AF_initDataCallback data
+ * Extract version from HTML elements
  */
-function extractVersionFromDataCallbacks(html) {
-  // Find all AF_initDataCallback calls
-  const callbackMatches = html.match(/AF_initDataCallback\(\{[^}]*data:([\s\S]*?)\}\);/g);
-  if (!callbackMatches) return null;
-
-  for (const callback of callbackMatches) {
-    // Extract the data portion
-    const dataMatch = callback.match(/data:([\s\S]*?)\}\);/);
-    if (!dataMatch) continue;
-
-    const dataStr = dataMatch[1];
-    
-    // Look for version-like strings in the data
-    // Version numbers typically look like: "1.2.3", "2.24.3.76", etc.
-    const versionPattern = /"(\d+\.\d+[\.\d]*)"/g;
-    let match;
-    const versions = [];
-    
-    while ((match = versionPattern.exec(dataStr)) !== null) {
-      const v = match[1];
-      // Filter reasonable version strings
-      if (v.length < 30 && v.length > 2 && !v.endsWith('.0.0.0')) {
-        versions.push(v);
-      }
-    }
-    
-    // Return the longest version found (most specific)
-    if (versions.length > 0) {
-      versions.sort((a, b) => b.length - a.length);
-      return versions[0];
-    }
-  }
-  return null;
-}
-
-/**
- * Extract version from HTML elements (hAyfc blocks)
- */
-function extractVersionFromHTMLBlocks(html) {
+function extractVersionFromHTML(html) {
   // Pattern: "Current Version" label followed by version value
   const blockPattern = /Current [Vv]ersion[\s\S]{0,200}?>(\d+[\d\.]+)</i;
   const match = html.match(blockPattern);
@@ -136,7 +98,6 @@ function extractVersionFromHTMLBlocks(html) {
   }
   
   if (versions.length > 0) {
-    // Return the longest version (most specific)
     versions.sort((a, b) => b.length - a.length);
     return versions[0];
   }
@@ -148,7 +109,6 @@ function extractVersionFromHTMLBlocks(html) {
  * Extract version from meta tags
  */
 function extractVersionFromMeta(html) {
-  // Look for softwareVersion meta
   const metaMatch = html.match(/itemprop="softwareVersion"[^>]*content="([^"]+)"/i)
     || html.match(/content="([^"]+)"[^>]*itemprop="softwareVersion"/i);
   if (metaMatch && metaMatch[1] && metaMatch[1] !== 'Varies with device') {
@@ -217,8 +177,7 @@ function extractAllData(html, packageName) {
   // Version - try multiple extraction methods
   version = extractVersionFromJsonLd(html)
     || extractVersionFromMeta(html)
-    || extractVersionFromHTMLBlocks(html)
-    || extractVersionFromDataCallbacks(html);
+    || extractVersionFromHTML(html);
 
   return {
     packageName,
@@ -287,34 +246,28 @@ async function scrapeWithLibrary(packageName) {
 
 /**
  * Method 2: Device Simulation - try multiple Android devices
- * Each device may return different version info
  */
 async function scrapeWithDeviceSimulation(packageName) {
   let bestResult = null;
   let bestVersion = '';
   let lastError = null;
 
-  // Try each device profile
   for (const device of DEVICE_PROFILES) {
     try {
       const html = await fetchPlayStoreWithDevice(packageName, device);
       const result = extractAllData(html, packageName);
       
-      // If we got a real version number (not "Varies with device"), use it
       if (result.version !== 'Varies with device' && result.version.length > 0) {
         console.log(`[${packageName}] ${device.name}: Got version ${result.version}`);
-        // Prefer longer/more specific versions
         if (result.version.length > bestVersion.length) {
           bestResult = result;
           bestVersion = result.version;
         }
-        // If we got a good version, no need to try more devices
         if (bestVersion.length > 5) {
           return bestResult;
         }
       }
       
-      // Keep the first result as fallback
       if (!bestResult) {
         bestResult = result;
       }
@@ -323,7 +276,6 @@ async function scrapeWithDeviceSimulation(packageName) {
       continue;
     }
     
-    // Small delay between device attempts
     await delay(200);
   }
 
@@ -335,7 +287,7 @@ async function scrapeWithDeviceSimulation(packageName) {
 }
 
 /**
- * Method 3: Desktop fetch (sometimes has different data)
+ * Method 3: Desktop fetch
  */
 async function scrapeWithDesktop(packageName) {
   const url = `https://play.google.com/store/apps/details?id=${encodeURIComponent(packageName)}&hl=en&gl=us`;
@@ -390,7 +342,6 @@ async function scrapeWithDifferentCountry(packageName) {
         version: appData.version || 'Varies with device',
       };
 
-      // If we got a real version, return immediately
       if (result.version !== 'Varies with device') {
         return result;
       }
@@ -403,35 +354,140 @@ async function scrapeWithDifferentCountry(packageName) {
 }
 
 /**
- * Main scraping function
- * Strategy: 
- * 1. Library (fast, get basic data)
- * 2. Device Simulation (try 5 Android devices for real version)
- * 3. Desktop fetch (alternative parsing)
- * 4. Different countries (last resort)
+ * Method 5: Scrape from APKMirror (external source with specific versions)
+ */
+async function scrapeFromAPKMirror(packageName) {
+  try {
+    // Convert package name to APKMirror URL format
+    // com.whatsapp -> com/whatsapp
+    const urlParts = packageName.split('.');
+    const mirrorUrl = `https://www.apkmirror.com/apk/${urlParts[0]}/${urlParts.slice(1).join('-')}/`;
+    
+    const response = await fetch(mirrorUrl, {
+      headers: {
+        'User-Agent': DESKTOP_UA,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      redirect: 'follow',
+    });
+
+    if (!response.ok) {
+      throw new Error(`APKMirror HTTP ${response.status}`);
+    }
+
+    const html = await response.text();
+    
+    // Extract latest version from APKMirror
+    // Look for version in various patterns
+    const versionPatterns = [
+      /<span[^>]*class="[^"]*app-version[^"]*"[^>]*>([^<]+)</i,
+      /<div[^>]*class="[^"]*version[^"]*"[^>]*>([^<]+)</i,
+      /Version:\s*([^<\n]+)/i,
+      /<a[^>]*href="[^"]*"[^>]*>(\d+\.\d+[\d\.]*)<\/a>/i,
+    ];
+    
+    for (const pattern of versionPatterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        const version = match[1].trim();
+        if (version && version.length < 30 && /\d/.test(version)) {
+          console.log(`[${packageName}] APKMirror: Got version ${version}`);
+          return {
+            packageName,
+            appName: 'Unknown',
+            publisherName: 'Not found',
+            category: 'Not found',
+            version: version,
+          };
+        }
+      }
+    }
+
+    throw new Error('Version not found on APKMirror');
+  } catch (error) {
+    throw error;
+  }
+}
+
+/**
+ * Method 6: Scrape from APKPure (external source)
+ */
+async function scrapeFromAPKPure(packageName) {
+  try {
+    const url = `https://apkpure.com/${packageName.replace(/\./g, '-')}/${packageName}`;
+    
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': DESKTOP_UA,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      redirect: 'follow',
+    });
+
+    if (!response.ok) {
+      throw new Error(`APKPure HTTP ${response.status}`);
+    }
+
+    const html = await response.text();
+    
+    // Extract version from APKPure
+    const versionPatterns = [
+      /<div[^>]*class="[^"]*version[^"]*"[^>]*>([^<]+)</i,
+      /<span[^>]*itemprop="softwareVersion"[^>]*>([^<]+)</i,
+      /Version:\s*([^<\n]+)/i,
+    ];
+    
+    for (const pattern of versionPatterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        const version = match[1].trim();
+        if (version && version.length < 30 && /\d/.test(version)) {
+          console.log(`[${packageName}] APKPure: Got version ${version}`);
+          return {
+            packageName,
+            appName: 'Unknown',
+            publisherName: 'Not found',
+            category: 'Not found',
+            version: version,
+          };
+        }
+      }
+    }
+
+    throw new Error('Version not found on APKPure');
+  } catch (error) {
+    throw error;
+  }
+}
+
+/**
+ * Main scraping function - tries ALL methods to get version
  */
 async function scrapeApp(packageName) {
   let finalResult = null;
   let lastError = null;
 
-  // === STEP 1: Library (get basic data) ===
+  console.log(`\n========== Starting scrape for ${packageName} ==========`);
+
+  // === STEP 1: Library ===
   try {
     finalResult = await scrapeWithLibrary(packageName);
-    console.log(`[${packageName}] Library: version=${finalResult.version}`);
+    console.log(`[Step 1] Library: version=${finalResult.version}`);
   } catch (error) {
-    console.log(`[${packageName}] Library failed: ${error.message}`);
+    console.log(`[Step 1] Library failed: ${error.message}`);
     lastError = error;
   }
 
-  // === STEP 2: If version is "Varies with device", try device simulation ===
+  // === STEP 2: Device Simulation (if version is "Varies with device") ===
   if (!finalResult || finalResult.version === 'Varies with device') {
     try {
-      console.log(`[${packageName}] Trying device simulation...`);
+      console.log(`[Step 2] Trying device simulation...`);
       const deviceResult = await scrapeWithDeviceSimulation(packageName);
-      console.log(`[${packageName}] Device simulation: version=${deviceResult.version}`);
+      console.log(`[Step 2] Device simulation: version=${deviceResult.version}`);
       
       if (deviceResult.version !== 'Varies with device') {
-        // Got real version from device simulation!
         if (finalResult) {
           finalResult.version = deviceResult.version;
         } else {
@@ -441,39 +497,75 @@ async function scrapeApp(packageName) {
         finalResult = deviceResult;
       }
     } catch (error) {
-      console.log(`[${packageName}] Device simulation failed: ${error.message}`);
+      console.log(`[Step 2] Device simulation failed: ${error.message}`);
       lastError = error;
     }
   }
 
-  // === STEP 3: If still "Varies with device", try desktop fetch ===
+  // === STEP 3: Desktop fetch (if still "Varies with device") ===
   if (finalResult && finalResult.version === 'Varies with device') {
     try {
-      console.log(`[${packageName}] Trying desktop fetch...`);
+      console.log(`[Step 3] Trying desktop fetch...`);
       await randomDelay();
       const desktopResult = await scrapeWithDesktop(packageName);
-      console.log(`[${packageName}] Desktop: version=${desktopResult.version}`);
+      console.log(`[Step 3] Desktop: version=${desktopResult.version}`);
       
       if (desktopResult.version !== 'Varies with device') {
         finalResult.version = desktopResult.version;
       }
     } catch (error) {
-      console.log(`[${packageName}] Desktop fetch failed: ${error.message}`);
+      console.log(`[Step 3] Desktop fetch failed: ${error.message}`);
       lastError = error;
     }
   }
 
-  // === STEP 4: If still no data at all, try different countries ===
-  if (!finalResult) {
+  // === STEP 4: APKMirror (if still "Varies with device") ===
+  if (finalResult && finalResult.version === 'Varies with device') {
     try {
-      console.log(`[${packageName}] Trying different countries...`);
-      finalResult = await scrapeWithDifferentCountry(packageName);
-      console.log(`[${packageName}] Country: version=${finalResult.version}`);
+      console.log(`[Step 4] Trying APKMirror...`);
+      await randomDelay();
+      const apkMirrorResult = await scrapeFromAPKMirror(packageName);
+      console.log(`[Step 4] APKMirror: version=${apkMirrorResult.version}`);
+      
+      if (apkMirrorResult.version !== 'Varies with device') {
+        finalResult.version = apkMirrorResult.version;
+      }
     } catch (error) {
-      console.log(`[${packageName}] Different countries failed: ${error.message}`);
+      console.log(`[Step 4] APKMirror failed: ${error.message}`);
       lastError = error;
     }
   }
+
+  // === STEP 5: APKPure (if still "Varies with device") ===
+  if (finalResult && finalResult.version === 'Varies with device') {
+    try {
+      console.log(`[Step 5] Trying APKPure...`);
+      await randomDelay();
+      const apkPureResult = await scrapeFromAPKPure(packageName);
+      console.log(`[Step 5] APKPure: version=${apkPureResult.version}`);
+      
+      if (apkPureResult.version !== 'Varies with device') {
+        finalResult.version = apkPureResult.version;
+      }
+    } catch (error) {
+      console.log(`[Step 5] APKPure failed: ${error.message}`);
+      lastError = error;
+    }
+  }
+
+  // === STEP 6: Different countries (if still no data) ===
+  if (!finalResult) {
+    try {
+      console.log(`[Step 6] Trying different countries...`);
+      finalResult = await scrapeWithDifferentCountry(packageName);
+      console.log(`[Step 6] Country: version=${finalResult.version}`);
+    } catch (error) {
+      console.log(`[Step 6] Different countries failed: ${error.message}`);
+      lastError = error;
+    }
+  }
+
+  console.log(`========== Final result for ${packageName}: version=${finalResult?.version || 'ERROR'} ==========\n`);
 
   // === FINAL: Return result or error ===
   if (finalResult) {

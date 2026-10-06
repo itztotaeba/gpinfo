@@ -383,7 +383,7 @@ export default function App() {
                 </li>
                 <li className="flex items-start gap-2 pl-6">
                   <span className="text-gray-500">•</span>
-                  <span>Sistem mencoba <strong className="text-white">4 metode berurutan</strong> untuk mendapatkan versi asli:</span>
+                  <span>Sistem mencoba <strong className="text-white">6 metode berurutan</strong> untuk mendapatkan versi asli:</span>
                 </li>
                 <li className="flex items-start gap-2 pl-10">
                   <span className="text-gray-600">1.</span>
@@ -399,6 +399,14 @@ export default function App() {
                 </li>
                 <li className="flex items-start gap-2 pl-10">
                   <span className="text-gray-600">4.</span>
+                  <span><strong className="text-white">APKMirror</strong> - External APK database dengan versi spesifik</span>
+                </li>
+                <li className="flex items-start gap-2 pl-10">
+                  <span className="text-gray-600">5.</span>
+                  <span><strong className="text-white">APKPure</strong> - Alternative APK source</span>
+                </li>
+                <li className="flex items-start gap-2 pl-10">
+                  <span className="text-gray-600">6.</span>
                   <span><strong className="text-white">Multi-Country</strong> - Coba 10 country berbeda</span>
                 </li>
                 <li className="flex items-start gap-2 pl-6">
