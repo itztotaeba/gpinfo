@@ -77,23 +77,48 @@ function extractVersionFromJsonLd(html) {
 }
 
 /**
- * Extract version from HTML elements - IMPROVED REGEX
- * Now captures versions with letters, hyphens, and more flexible patterns
+ * Extract version from HTML elements - IMPROVED WITH MORE PATTERNS
+ * Now captures versions with letters, hyphens, meta tags, and div classes
  */
 function extractVersionFromHTML(html) {
-  // IMPROVED: Pattern now captures letters, hyphens, and more flexible version formats
-  // Examples: "1.2.3", "2.0a", "1.2.3-beta", "3.0.0-rc1"
+  // Pattern 1: Meta tag with itemprop="softwareVersion"
+  const metaVersionMatch = html.match(/<meta[^>]*itemprop="softwareVersion"[^>]*content="([^"]+)"/i)
+    || html.match(/content="([^"]+)"[^>]*itemprop="softwareVersion"/i);
+  if (metaVersionMatch && metaVersionMatch[1] && metaVersionMatch[1] !== 'Varies with device') {
+    return metaVersionMatch[1].trim();
+  }
+
+  // Pattern 2: Current Version label with flexible pattern
   const blockPattern = /Current\s+Version[\s\S]{0,300}?>([\d\.a-zA-Z\-]+)</i;
   const match = html.match(blockPattern);
   if (match && match[1]) {
     const version = match[1].trim();
-    // Validate it looks like a version (contains at least one digit)
     if (/\d/.test(version) && version.length < 30) {
       return version;
     }
   }
 
-  // Alternative: look for htlgb class elements with more flexible pattern
+  // Pattern 3: div with class "hAyfc" containing version info
+  const hAyfcPattern = /<div[^>]*class="[^"]*hAyfc[^"]*"[^>]*>[\s\S]*?<div[^>]*class="[^"]*htlgb[^"]*"[^>]*>([\d\.a-zA-Z\-]+)</i;
+  const hAyfcMatch = html.match(hAyfcPattern);
+  if (hAyfcMatch && hAyfcMatch[1]) {
+    const version = hAyfcMatch[1].trim();
+    if (/\d/.test(version) && version.length < 30) {
+      return version;
+    }
+  }
+
+  // Pattern 4: div with class "BgcNfc" (label) followed by version value
+  const bgcNfcPattern = /<div[^>]*class="[^"]*BgcNfc[^"]*"[^>]*>Current\s+Version<\/div>[\s\S]{0,200}?<div[^>]*class="[^"]*htlgb[^"]*"[^>]*>([\d\.a-zA-Z\-]+)</i;
+  const bgcNfcMatch = html.match(bgcNfcPattern);
+  if (bgcNfcMatch && bgcNfcMatch[1]) {
+    const version = bgcNfcMatch[1].trim();
+    if (/\d/.test(version) && version.length < 30) {
+      return version;
+    }
+  }
+
+  // Pattern 5: Fallback - look for htlgb class elements
   const htlgbPattern = /htlgb[^>]*>([\d\.a-zA-Z\-]+)</g;
   const versions = [];
   let m;
@@ -105,7 +130,6 @@ function extractVersionFromHTML(html) {
   }
   
   if (versions.length > 0) {
-    // Sort by length (prefer longer/more specific versions)
     versions.sort((a, b) => b.length - a.length);
     return versions[0];
   }
@@ -362,12 +386,10 @@ async function scrapeWithDifferentCountry(packageName) {
 }
 
 /**
- * Method 5: Scrape from APKMirror - IMPROVED with official search endpoint
- * Uses APKMirror's search API instead of guessing URL structure
+ * Method 5: Scrape from APKMirror - using search endpoint
  */
 async function scrapeFromAPKMirror(packageName) {
   try {
-    // Use official APKMirror search endpoint
     const searchUrl = `https://www.apkmirror.com/?post_type=app_release&searchtype=app&s=${encodeURIComponent(packageName)}`;
     
     const response = await fetch(searchUrl, {
@@ -385,8 +407,6 @@ async function scrapeFromAPKMirror(packageName) {
 
     const html = await response.text();
     
-    // Extract version from search results
-    // Look for version in appRowVersion class or similar patterns
     const versionPatterns = [
       /appRowVersion[^>]*>([^<]+)</i,
       /class="[^"]*version[^"]*"[^>]*>([^<]+)</i,
@@ -418,12 +438,10 @@ async function scrapeFromAPKMirror(packageName) {
 }
 
 /**
- * Method 6: Scrape from APKCombo - REPLACED from APKPure
- * APKCombo is more stable for fallback
+ * Method 6: Scrape from APKCombo
  */
 async function scrapeFromAPKCombo(packageName) {
   try {
-    // Use APKCombo search endpoint
     const searchUrl = `https://apkcombo.com/search/?q=${encodeURIComponent(packageName)}`;
     
     const response = await fetch(searchUrl, {
@@ -441,8 +459,6 @@ async function scrapeFromAPKCombo(packageName) {
 
     const html = await response.text();
     
-    // Extract version from search results
-    // Look for version badge or download link
     const versionPatterns = [
       /class="[^"]*version[^"]*"[^>]*>([^<]+)</i,
       /itemprop="softwareVersion"[^>]*>([^<]+)</i,
@@ -475,20 +491,86 @@ async function scrapeFromAPKCombo(packageName) {
 }
 
 /**
+ * Method 7: Scrape from Uptodown - NEW FALLBACK
+ * Uses Uptodown search endpoint to find app version
+ */
+async function scrapeFromUptodown(packageName) {
+  try {
+    const searchUrl = `https://en.uptodown.com/android/search?query=${encodeURIComponent(packageName)}`;
+    
+    const response = await fetch(searchUrl, {
+      headers: {
+        'User-Agent': DESKTOP_UA,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'identity',
+      },
+      redirect: 'follow',
+    });
+
+    if (!response.ok) {
+      throw new Error(`Uptodown HTTP ${response.status}`);
+    }
+
+    const html = await response.text();
+    
+    // Check if blocked by Cloudflare
+    if (html.includes('cloudflare') || html.includes('Attention Required')) {
+      throw new Error('Blocked by Cloudflare');
+    }
+    
+    // Extract version from search results
+    // Pattern 1: Look for version badge or text near app name
+    const versionPatterns = [
+      /<span[^>]*class="[^"]*version[^"]*"[^>]*>([^<]+)</i,
+      /Version\s+(\d+\.\d+[\.\d\w\-]*)/i,
+      /data-version="([^"]+)"/i,
+      /<div[^>]*class="[^"]*app-version[^"]*"[^>]*>([^<]+)</i,
+      /<span[^>]*>(\d+\.\d+\.\d+[\.\d\w\-]*)<\/span>/i,
+    ];
+    
+    for (const pattern of versionPatterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        const version = match[1].trim();
+        if (version && version.length < 30 && /\d/.test(version)) {
+          console.log(`[${packageName}] Uptodown: Got version ${version}`);
+          return {
+            packageName,
+            appName: 'Unknown',
+            publisherName: 'Not found',
+            category: 'Not found',
+            version: version,
+          };
+        }
+      }
+    }
+
+    throw new Error('Version not found on Uptodown');
+  } catch (error) {
+    throw error;
+  }
+}
+
+/**
  * Main scraping function - tries ALL methods to get version
- * Order: Library -> Device Simulation -> Desktop -> APKMirror -> APKCombo -> Multi-Country
+ * Order: Library -> Device Simulation -> Desktop -> APKMirror -> APKCombo -> Uptodown -> Multi-Country
+ * Now includes debug_steps to track which methods succeeded/failed
  */
 async function scrapeApp(packageName) {
   let finalResult = null;
   let lastError = null;
+  const debug_steps = {};
 
   console.log(`\n========== Starting scrape for ${packageName} ==========`);
 
   // === STEP 1: Library ===
   try {
     finalResult = await scrapeWithLibrary(packageName);
+    debug_steps.library = finalResult.version === 'Varies with device' ? 'Varies' : `Success: ${finalResult.version}`;
     console.log(`[Step 1] Library: version=${finalResult.version}`);
   } catch (error) {
+    debug_steps.library = `Failed: ${error.message}`;
     console.log(`[Step 1] Library failed: ${error.message}`);
     lastError = error;
   }
@@ -498,18 +580,15 @@ async function scrapeApp(packageName) {
     try {
       console.log(`[Step 2] Trying device simulation...`);
       const deviceResult = await scrapeWithDeviceSimulation(packageName);
+      debug_steps.device = deviceResult.version === 'Varies with device' ? 'Varies' : `Success: ${deviceResult.version}`;
       console.log(`[Step 2] Device simulation: version=${deviceResult.version}`);
       
       if (deviceResult.version !== 'Varies with device') {
-        if (finalResult) {
-          finalResult.version = deviceResult.version;
-        } else {
-          finalResult = deviceResult;
-        }
-      } else if (!finalResult) {
-        finalResult = deviceResult;
-      }
+        if (finalResult) finalResult.version = deviceResult.version;
+        else finalResult = deviceResult;
+      } else if (!finalResult) finalResult = deviceResult;
     } catch (error) {
+      debug_steps.device = `Failed: ${error.message}`;
       console.log(`[Step 2] Device simulation failed: ${error.message}`);
       lastError = error;
     }
@@ -521,12 +600,14 @@ async function scrapeApp(packageName) {
       console.log(`[Step 3] Trying desktop fetch...`);
       await randomDelay();
       const desktopResult = await scrapeWithDesktop(packageName);
+      debug_steps.desktop = desktopResult.version === 'Varies with device' ? 'Varies' : `Success: ${desktopResult.version}`;
       console.log(`[Step 3] Desktop: version=${desktopResult.version}`);
       
       if (desktopResult.version !== 'Varies with device') {
         finalResult.version = desktopResult.version;
       }
     } catch (error) {
+      debug_steps.desktop = `Failed: ${error.message}`;
       console.log(`[Step 3] Desktop fetch failed: ${error.message}`);
       lastError = error;
     }
@@ -538,12 +619,14 @@ async function scrapeApp(packageName) {
       console.log(`[Step 4] Trying APKMirror...`);
       await randomDelay();
       const apkMirrorResult = await scrapeFromAPKMirror(packageName);
+      debug_steps.apkmirror = apkMirrorResult.version === 'Varies with device' ? 'Varies' : `Success: ${apkMirrorResult.version}`;
       console.log(`[Step 4] APKMirror: version=${apkMirrorResult.version}`);
       
       if (apkMirrorResult.version !== 'Varies with device') {
         finalResult.version = apkMirrorResult.version;
       }
     } catch (error) {
+      debug_steps.apkmirror = `Failed: ${error.message}`;
       console.log(`[Step 4] APKMirror failed: ${error.message}`);
       lastError = error;
     }
@@ -555,25 +638,48 @@ async function scrapeApp(packageName) {
       console.log(`[Step 5] Trying APKCombo...`);
       await randomDelay();
       const apkComboResult = await scrapeFromAPKCombo(packageName);
+      debug_steps.apkcombo = apkComboResult.version === 'Varies with device' ? 'Varies' : `Success: ${apkComboResult.version}`;
       console.log(`[Step 5] APKCombo: version=${apkComboResult.version}`);
       
       if (apkComboResult.version !== 'Varies with device') {
         finalResult.version = apkComboResult.version;
       }
     } catch (error) {
+      debug_steps.apkcombo = `Failed: ${error.message}`;
       console.log(`[Step 5] APKCombo failed: ${error.message}`);
       lastError = error;
     }
   }
 
-  // === STEP 6: Different countries (if still no data) ===
+  // === STEP 6: Uptodown (if still "Varies with device") ===
+  if (finalResult && finalResult.version === 'Varies with device') {
+    try {
+      console.log(`[Step 6] Trying Uptodown...`);
+      await randomDelay();
+      const uptodownResult = await scrapeFromUptodown(packageName);
+      debug_steps.uptodown = uptodownResult.version === 'Varies with device' ? 'Varies' : `Success: ${uptodownResult.version}`;
+      console.log(`[Step 6] Uptodown: version=${uptodownResult.version}`);
+      
+      if (uptodownResult.version !== 'Varies with device') {
+        finalResult.version = uptodownResult.version;
+      }
+    } catch (error) {
+      debug_steps.uptodown = `Failed: ${error.message}`;
+      console.log(`[Step 6] Uptodown failed: ${error.message}`);
+      lastError = error;
+    }
+  }
+
+  // === STEP 7: Different countries (if still no data) ===
   if (!finalResult) {
     try {
-      console.log(`[Step 6] Trying different countries...`);
+      console.log(`[Step 7] Trying different countries...`);
       finalResult = await scrapeWithDifferentCountry(packageName);
-      console.log(`[Step 6] Country: version=${finalResult.version}`);
+      debug_steps.countries = finalResult.version === 'Varies with device' ? 'Varies' : `Success: ${finalResult.version}`;
+      console.log(`[Step 7] Country: version=${finalResult.version}`);
     } catch (error) {
-      console.log(`[Step 6] Different countries failed: ${error.message}`);
+      debug_steps.countries = `Failed: ${error.message}`;
+      console.log(`[Step 7] Different countries failed: ${error.message}`);
       lastError = error;
     }
   }
@@ -582,7 +688,10 @@ async function scrapeApp(packageName) {
 
   // === FINAL: Return result or error ===
   if (finalResult) {
-    return finalResult;
+    return {
+      ...finalResult,
+      debug_steps,
+    };
   }
 
   return {
@@ -592,6 +701,7 @@ async function scrapeApp(packageName) {
     category: '',
     version: '',
     error: lastError?.message || 'All scraping methods failed',
+    debug_steps,
   };
 }
 

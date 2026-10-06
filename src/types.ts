@@ -5,4 +5,5 @@ export interface AppInfo {
   category: string;
   version: string;
   error?: string;
+  debug_steps?: Record<string, string>;
 }
