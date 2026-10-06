@@ -41,6 +41,7 @@ export default function App() {
           category: '',
           version: '',
           error: errorData.error || `HTTP ${response.status}`,
+          debug_steps: { api: `Failed: HTTP ${response.status}` },
         };
       }
     } catch (error: any) {
@@ -51,6 +52,7 @@ export default function App() {
         category: '',
         version: '',
         error: `Network error: ${error.message}`,
+        debug_steps: { network: `Failed: ${error.message}` },
       };
     }
   };
