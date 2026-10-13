@@ -211,12 +211,19 @@ function extractAllData(html, packageName) {
     || extractVersionFromMeta(html)
     || extractVersionFromHTML(html);
 
+  // AppBrain slug - derived from the "See on APPBRAIN" link on the Play page,
+  // used later by the AppBrain fallback (appbrain.com/app/{slug})
+  let appBrainSlug = '';
+  const appBrainMatch = html.match(/appbrain\.com\/app\/([a-z0-9][a-z0-9\-]*)/i);
+  if (appBrainMatch) appBrainSlug = appBrainMatch[1];
+
   return {
     packageName,
     appName: appName || 'Unknown',
     publisherName: publisherName || 'Not found',
     category: category || 'Not found',
     version: version || 'Varies with device',
+    appBrainSlug,
   };
 }
 
@@ -353,7 +360,349 @@ async function scrapeWithDesktop(packageName) {
 }
 
 /**
- * Method 4: Try different countries with library
+ * Normalize a scraped version string; return null if it is useless
+ * (empty, "Varies with device", or implausibly long).
+ */
+function normalizeVersion(raw) {
+  if (!raw) return null;
+  const v = String(raw).trim();
+  if (!v || v === 'Varies with device') return null;
+  if (v.length > 30 || !/\d/.test(v)) return null;
+  return v;
+}
+
+/**
+ * Method: Aptoide API (JSON, no HTML parsing needed)
+ * Primary endpoint (as specified): https://ws75.aptoide.com/api/7/app/search/query={packageName}&limit=1
+ * Alternate path form:              https://ws75.aptoide.com/api/7/apps/search/q={packageName}/limit=1
+ * Extracts datalist.list[0].version_name after validating the package name matches.
+ */
+async function scrapeFromAptoide(packageName) {
+  const endpoints = [
+    `https://ws75.aptoide.com/api/7/app/search/query=${encodeURIComponent(packageName)}&limit=1`,
+    `https://ws75.aptoide.com/api/7/apps/search/q=${encodeURIComponent(packageName)}/limit=1`,
+  ];
+
+  let lastError = null;
+  for (const url of endpoints) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': DESKTOP_UA,
+          'Accept': 'application/json, text/plain, */*',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        redirect: 'follow',
+      });
+
+      if (!response.ok) {
+        lastError = new Error(`HTTP ${response.status}`);
+        continue;
+      }
+
+      const data = await response.json();
+      const list = data?.datalist?.list || [];
+      // Prefer an exact package match among the results
+      const app = list.find(a => a.package === packageName) || list[0];
+      if (!app) {
+        lastError = new Error('No results in datalist');
+        continue;
+      }
+
+      // Validate the returned package actually matches what we searched for
+      if (app.package !== packageName) {
+        lastError = new Error(`Package mismatch: got "${app.package}"`);
+        continue;
+      }
+
+      const version = normalizeVersion(app.version_name);
+      if (!version) {
+        lastError = new Error('No usable version_name');
+        continue;
+      }
+
+      return {
+        packageName,
+        appName: app.name || 'Unknown',
+        publisherName: app.store?.name || 'Not found',
+        category: app.tags?.[0] || 'Not found',
+        version,
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('Aptoide failed');
+}
+
+/**
+ * Method: AppBrain
+ * URL pattern derived from Play Store page ("See on APPBRAIN" link) with a
+ * direct-package fallback: https://www.appbrain.com/app/{packageName}
+ * Extracts <meta property="og:app_version"> or <span itemprop="softwareVersion">.
+ */
+async function scrapeFromAppBrain(packageName, appSlug = '') {
+  const candidates = [];
+  if (appSlug) candidates.push(`https://www.appbrain.com/app/${appSlug}`);
+  candidates.push(`https://www.appbrain.com/app/${packageName}`);
+
+  let lastError = null;
+  for (const url of candidates) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': DESKTOP_UA,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        redirect: 'follow',
+      });
+
+      if (!response.ok) {
+        lastError = new Error(`HTTP ${response.status}`);
+        continue;
+      }
+
+      const html = await response.text();
+
+      // Pattern 1: og:app_version meta tag
+      const ogMatch = html.match(/<meta[^>]*property=["']og:app_version["'][^>]*content=["']([^"']+)["']/i)
+        || html.match(/content=["']([^"']+)["'][^>]*property=["']og:app_version["']/i);
+      let version = ogMatch ? normalizeVersion(ogMatch[1]) : null;
+
+      // Pattern 2: <span itemprop="softwareVersion">...</span>
+      if (!version) {
+        const spanMatch = html.match(/itemprop=["']softwareVersion["'][^>]*>([^<]+)</i);
+        version = spanMatch ? normalizeVersion(spanMatch[1]) : null;
+      }
+
+      if (version) {
+        return {
+          packageName,
+          appName: 'Unknown',
+          publisherName: 'Not found',
+          category: 'Not found',
+          version,
+        };
+      }
+      lastError = new Error('Version not found in HTML');
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('AppBrain failed');
+}
+
+/**
+ * Method: Uptodown - search endpoint, extract version from first result.
+ * Strategy (verified against live HTML):
+ *   1. Search page lists app result links like https://{app-slug}.en.uptodown.com/android
+ *   2. Fetch the first matching app page; validate package name appears in it
+ *   3. Extract <span class="version">X.Y.Z</span> from the versions list
+ */
+async function scrapeFromUptodownSearch(packageName) {
+  const searchUrl = `https://en.uptodown.com/android/search?query=${encodeURIComponent(packageName)}`;
+
+  const response = await fetch(searchUrl, {
+    headers: {
+      'User-Agent': DESKTOP_UA,
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Accept-Encoding': 'identity',
+    },
+    redirect: 'follow',
+  });
+
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+  const html = await response.text();
+  if (html.includes('cloudflare') || html.includes('Attention Required')) {
+    throw new Error('Blocked by Cloudflare');
+  }
+
+  // App result links on the search page: https://{slug}.en.uptodown.com/android
+  const appLinks = [...new Set(
+    [...html.matchAll(/href="(https:\/\/[a-z0-9\-]+\.en\.uptodown\.com\/android)"/gi)].map(m => m[1])
+  )].slice(0, 3);
+
+  let lastError = null;
+  for (const appUrl of appLinks) {
+    try {
+      const pageResp = await fetch(appUrl, {
+        headers: {
+          'User-Agent': DESKTOP_UA,
+          'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        redirect: 'follow',
+      });
+      if (!pageResp.ok) {
+        lastError = new Error(`HTTP ${pageResp.status} on app page`);
+        continue;
+      }
+
+      const pageHtml = await pageResp.text();
+
+      // Validate this page is actually about our package
+      if (!pageHtml.includes(packageName)) {
+        lastError = new Error(`Package "${packageName}" not referenced on ${appUrl}`);
+        continue;
+      }
+
+      // Version patterns: span.version inside versions list, JSON-LD softwareVersion, itemprop
+      const versionPatterns = [
+        /<span[^>]*class="[^"]*version[^"]*"[^>]*>([^<]+)<\/span>/i,
+        /"softwareVersion"\s*:\s*"([^"]+)"/i,
+        /itemprop="softwareVersion"[^>]*>([^<]+)</i,
+        /Version\s+(\d+\.\d+[.\d\w\-]*)/i,
+        /data-version="([^"]+)"/i,
+      ];
+
+      for (const pattern of versionPatterns) {
+        const match = pageHtml.match(pattern);
+        if (match && match[1]) {
+          const version = normalizeVersion(match[1]);
+          if (version) {
+            return {
+              packageName,
+              appName: 'Unknown',
+              publisherName: 'Not found',
+              category: 'Not found',
+              version,
+            };
+          }
+        }
+      }
+      lastError = new Error('Version not found on app page');
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  // Fallback: try to read a version directly from the search results markup
+  const directPatterns = [
+    /<span[^>]*class="[^"]*version[^"]*"[^>]*>([^<]+)</i,
+    /Version\s+(\d+\.\d+[.\d\w\-]*)/i,
+    /data-version="([^"]+)"/i,
+  ];
+  for (const pattern of directPatterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) {
+      const version = normalizeVersion(match[1]);
+      if (version) {
+        return {
+          packageName,
+          appName: 'Unknown',
+          publisherName: 'Not found',
+          category: 'Not found',
+          version,
+        };
+      }
+    }
+  }
+
+  throw lastError || new Error('Version not found on Uptodown');
+}
+
+/**
+ * Method: APKCombo - search endpoint, extract version from badge/link.
+ */
+async function scrapeFromAPKComboSearch(packageName) {
+  const searchUrl = `https://apkcombo.com/search/?q=${encodeURIComponent(packageName)}`;
+
+  const response = await fetch(searchUrl, {
+    headers: {
+      'User-Agent': DESKTOP_UA,
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+    redirect: 'follow',
+  });
+
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+  const html = await response.text();
+
+  const versionPatterns = [
+    /class="[^"]*version[^"]*"[^>]*>([^<]+)</i,
+    /itemprop="softwareVersion"[^>]*>([^<]+)</i,
+    /data-version="([^"]+)"/i,
+    /Version:\s*([^<\n]+)/i,
+    /<span[^>]*>(\d+\.\d+[.\d\w\-]*)<\/span>/i,
+  ];
+
+  for (const pattern of versionPatterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) {
+      const version = normalizeVersion(match[1]);
+      if (version) {
+        return {
+          packageName,
+          appName: 'Unknown',
+          publisherName: 'Not found',
+          category: 'Not found',
+          version,
+        };
+      }
+    }
+  }
+
+  throw new Error('Version not found on APKCombo');
+}
+
+/**
+ * GitHub owner/repo mapping for known open-source Android apps.
+ * Keyed by package name so "Varies with device" apps can still be resolved.
+ */
+const GITHUB_REPO_MAP = {
+  'org.thoughtcrime.securesms': 'signalapp/Signal-Android',
+  'org.videolan.vlc': 'videolan/vlc-android',
+  'org.newpipe': 'TeamNewPipe/NewPipe',
+  'com.teamnewpipe.newpipe': 'TeamNewPipe/NewPipe',
+  'org.mozilla.firefox': 'mozilla-mobile/firefox-android',
+  'com.ichi2.anki': 'ankidroid/Anki-Android',
+};
+
+/**
+ * Method: GitHub Releases (open-source apps only)
+ * GET https://api.github.com/repos/{owner}/{repo}/releases/latest -> tag_name
+ */
+async function scrapeFromGithubReleases(packageName) {
+  const repo = GITHUB_REPO_MAP[packageName];
+  if (!repo) throw new Error('No GitHub mapping for this package');
+
+  const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
+    headers: {
+      'User-Agent': DESKTOP_UA,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    redirect: 'follow',
+  });
+
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+  const data = await response.json();
+  const rawTag = data?.tag_name;
+  if (!rawTag) throw new Error('No tag_name in release');
+
+  // Strip common release-tag prefixes: v, version-, releases/, etc.
+  const version = normalizeVersion(String(rawTag).replace(/^(?:v|version[-_]|releases\/)/i, ''));
+  if (!version) throw new Error(`Unusable tag_name "${rawTag}"`);
+
+  return {
+    packageName,
+    appName: data.name || 'Unknown',
+    publisherName: repo,
+    category: 'Open Source',
+    version,
+  };
+}
+
+/**
+ * Method: Try different countries with library
  */
 async function scrapeWithDifferentCountry(packageName) {
   const countries = ['id', 'us', 'gb', 'sg', 'au', 'jp', 'kr', 'de', 'br', 'in'];
@@ -490,67 +839,6 @@ async function scrapeFromAPKCombo(packageName) {
   }
 }
 
-/**
- * Method 7: Scrape from Uptodown - NEW FALLBACK
- * Uses Uptodown search endpoint to find app version
- */
-async function scrapeFromUptodown(packageName) {
-  try {
-    const searchUrl = `https://en.uptodown.com/android/search?query=${encodeURIComponent(packageName)}`;
-    
-    const response = await fetch(searchUrl, {
-      headers: {
-        'User-Agent': DESKTOP_UA,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'identity',
-      },
-      redirect: 'follow',
-    });
-
-    if (!response.ok) {
-      throw new Error(`Uptodown HTTP ${response.status}`);
-    }
-
-    const html = await response.text();
-    
-    // Check if blocked by Cloudflare
-    if (html.includes('cloudflare') || html.includes('Attention Required')) {
-      throw new Error('Blocked by Cloudflare');
-    }
-    
-    // Extract version from search results
-    // Pattern 1: Look for version badge or text near app name
-    const versionPatterns = [
-      /<span[^>]*class="[^"]*version[^"]*"[^>]*>([^<]+)</i,
-      /Version\s+(\d+\.\d+[\.\d\w\-]*)/i,
-      /data-version="([^"]+)"/i,
-      /<div[^>]*class="[^"]*app-version[^"]*"[^>]*>([^<]+)</i,
-      /<span[^>]*>(\d+\.\d+\.\d+[\.\d\w\-]*)<\/span>/i,
-    ];
-    
-    for (const pattern of versionPatterns) {
-      const match = html.match(pattern);
-      if (match && match[1]) {
-        const version = match[1].trim();
-        if (version && version.length < 30 && /\d/.test(version)) {
-          console.log(`[${packageName}] Uptodown: Got version ${version}`);
-          return {
-            packageName,
-            appName: 'Unknown',
-            publisherName: 'Not found',
-            category: 'Not found',
-            version: version,
-          };
-        }
-      }
-    }
-
-    throw new Error('Version not found on Uptodown');
-  } catch (error) {
-    throw error;
-  }
-}
 
 /**
  * Huawei AppGallery edge API endpoints (regional load balancers).
@@ -770,7 +1058,7 @@ async function scrapeApp(packageName, source = 'both') {
     const merged = {
       ...primary,
       googlePlay: play && !play.error
-        ? { version: play.version, appName: play.appName, publisherName: play.publisherName, category: play.category, playStoreUrl: `https://play.google.com/store/apps/details?id=${encodeURIComponent(packageName)}` }
+        ? { version: play.version, appName: play.appName, publisherName: play.publisherName, category: play.category, source: play.source || 'GooglePlayScraper', playStoreUrl: `https://play.google.com/store/apps/details?id=${encodeURIComponent(packageName)}` }
         : { error: play?.error || playSettled.reason?.message || 'Not available' },
       huaweiAppGallery: ag
         ? {
@@ -801,6 +1089,7 @@ async function scrapeApp(packageName, source = 'both') {
       appName: play.appName,
       publisherName: play.publisherName,
       category: play.category,
+      source: play.source || 'GooglePlayScraper',
       playStoreUrl: play.playStoreUrl,
     };
   }
@@ -808,137 +1097,175 @@ async function scrapeApp(packageName, source = 'both') {
 }
 
 /**
- * Google Play scraping pipeline:
- * Library -> Device Simulation -> Desktop -> APKMirror -> APKCombo -> Uptodown -> Multi-Country
+ * Normalize an implausible placeholder version into the canonical
+ * "Varies with device" marker so the fallback chain can recognize it.
+ * Newer google-play-scraper releases return the literal string "VARY"
+ * for device-dependent apps instead of "Varies with device".
+ */
+function normalizePlaceholderVersion(v) {
+  if (!v) return v;
+  const s = String(v).trim();
+  if (/^vary(ing)?$/i.test(s)) return 'Varies with device';
+  return s;
+}
+
+/**
+ * True when the given value is a usable, concrete version string
+ * (not empty and not any known "varies" placeholder variant).
+ */
+function isRealVersion(v) {
+  if (!v) return false;
+  const s = String(v).trim();
+  if (!s) return false;
+  if (/^vary(ing)?$/i.test(s)) return false;
+  if (/^varies(\s+with\s+device)?$/i.test(s)) return false;
+  return true;
+}
+
+/**
+ * Google Play scraping pipeline (sequential fallback chain):
+ *   1. google-play-scraper library
+ *   2. Play Store device simulation
+ *   3. Play Store desktop fetch
+ *   4. Aptoide API          (NEW - JSON, stable)
+ *   5. AppBrain             (NEW - og:app_version meta)
+ *   6. Uptodown search      (NEW)
+ *   7. APKMirror search     (fixed - appRowVersion)
+ *   8. APKCombo search      (fixed - version badge)
+ *   9. GitHub Releases      (NEW - open-source mapping)
+ *  10. Multi-country library retry
+ *
+ * Stops as soon as a real version (not "Varies with device" / "VARY") is found.
+ * Every step logs: [packageName] MethodName: Status - detail
+ * The winning method is reported in the `source` field of the result.
  */
 async function scrapePlayStore(packageName) {
   let finalResult = null;
   let lastError = null;
   const debug_steps = {};
 
+  const hasVersion = () => !!(finalResult && isRealVersion(finalResult.version));
+
+  // Adopt a fallback's version into the result (keeping richer metadata we may already have)
+  const adopt = (r, sourceName) => {
+    if (!finalResult) {
+      finalResult = { ...r, source: sourceName };
+    } else {
+      finalResult.version = r.version;
+      finalResult.source = sourceName;
+      if (finalResult.appName === 'Unknown' && r.appName && r.appName !== 'Unknown') finalResult.appName = r.appName;
+      if (finalResult.publisherName === 'Not found' && r.publisherName && r.publisherName !== 'Not found') finalResult.publisherName = r.publisherName;
+      if (finalResult.category === 'Not found' && r.category && r.category !== 'Not found') finalResult.category = r.category;
+    }
+  };
+
+  const attempt = async (stepKey, methodName, fn) => {
+    await randomDelay(200, 600);
+    try {
+      const r = await fn();
+      if (r && isRealVersion(r.version)) {
+        console.log(`[${packageName}] ${methodName}: Success - Got version ${r.version}`);
+        debug_steps[stepKey] = `Success: ${r.version}`;
+        adopt({ ...r, version: normalizePlaceholderVersion(r.version) }, methodName);
+        return true;
+      }
+      console.log(`[${packageName}] ${methodName}: Failed - No usable version (Varies with device)`);
+      debug_steps[stepKey] = 'Failed: Varies with device';
+      if (!finalResult && r) finalResult = { ...r, version: 'Varies with device', source: methodName };
+      return false;
+    } catch (error) {
+      console.log(`[${packageName}] ${methodName}: Failed - ${error.message}`);
+      debug_steps[stepKey] = `Failed: ${error.message}`;
+      lastError = error;
+      return false;
+    }
+  };
+
   console.log(`\n========== Starting scrape for ${packageName} ==========`);
 
-  // === STEP 1: Library ===
+  // === STEP 1: google-play-scraper library ===
   try {
-    finalResult = await scrapeWithLibrary(packageName);
-    debug_steps.library = finalResult.version === 'Varies with device' ? 'Varies' : `Success: ${finalResult.version}`;
-    console.log(`[Step 1] Library: version=${finalResult.version}`);
+    const r = await scrapeWithLibrary(packageName);
+    if (isRealVersion(r.version)) {
+      console.log(`[${packageName}] GooglePlayScraper: Success - Got version ${r.version}`);
+      debug_steps.library = `Success: ${r.version}`;
+      adopt({ ...r, version: normalizePlaceholderVersion(r.version) }, 'GooglePlayScraper');
+    } else {
+      console.log(`[${packageName}] GooglePlayScraper: Failed - Varies with device (${JSON.stringify(r.version)})`);
+      debug_steps.library = 'Varies';
+      finalResult = { ...r, version: 'Varies with device', source: 'GooglePlayScraper' };
+    }
   } catch (error) {
+    console.log(`[${packageName}] GooglePlayScraper: Failed - ${error.message}`);
     debug_steps.library = `Failed: ${error.message}`;
-    console.log(`[Step 1] Library failed: ${error.message}`);
     lastError = error;
   }
 
-  // === STEP 2: Device Simulation (if version is "Varies with device") ===
-  if (!finalResult || finalResult.version === 'Varies with device') {
+  // === STEP 2: Device Simulation ===
+  if (!hasVersion()) {
     try {
-      console.log(`[Step 2] Trying device simulation...`);
-      const deviceResult = await scrapeWithDeviceSimulation(packageName);
-      debug_steps.device = deviceResult.version === 'Varies with device' ? 'Varies' : `Success: ${deviceResult.version}`;
-      console.log(`[Step 2] Device simulation: version=${deviceResult.version}`);
-      
-      if (deviceResult.version !== 'Varies with device') {
-        if (finalResult) finalResult.version = deviceResult.version;
-        else finalResult = deviceResult;
-      } else if (!finalResult) finalResult = deviceResult;
+      const r = await scrapeWithDeviceSimulation(packageName);
+      if (isRealVersion(r.version)) {
+        console.log(`[${packageName}] DeviceSimulation: Success - Got version ${r.version}`);
+        debug_steps.device = `Success: ${r.version}`;
+        adopt({ ...r, version: normalizePlaceholderVersion(r.version) }, 'DeviceSimulation');
+      } else {
+        console.log(`[${packageName}] DeviceSimulation: Failed - Varies with device`);
+        debug_steps.device = 'Varies';
+        if (!finalResult) finalResult = { ...r, version: 'Varies with device', source: 'DeviceSimulation' };
+      }
     } catch (error) {
+      console.log(`[${packageName}] DeviceSimulation: Failed - ${error.message}`);
       debug_steps.device = `Failed: ${error.message}`;
-      console.log(`[Step 2] Device simulation failed: ${error.message}`);
       lastError = error;
     }
   }
 
-  // === STEP 3: Desktop fetch (if still "Varies with device") ===
-  if (finalResult && finalResult.version === 'Varies with device') {
+  // === STEP 3: Desktop fetch ===
+  if (!hasVersion()) {
     try {
-      console.log(`[Step 3] Trying desktop fetch...`);
-      await randomDelay();
-      const desktopResult = await scrapeWithDesktop(packageName);
-      debug_steps.desktop = desktopResult.version === 'Varies with device' ? 'Varies' : `Success: ${desktopResult.version}`;
-      console.log(`[Step 3] Desktop: version=${desktopResult.version}`);
-      
-      if (desktopResult.version !== 'Varies with device') {
-        finalResult.version = desktopResult.version;
+      const r = await scrapeWithDesktop(packageName);
+      if (isRealVersion(r.version)) {
+        console.log(`[${packageName}] PlayStoreDesktop: Success - Got version ${r.version}`);
+        debug_steps.desktop = `Success: ${r.version}`;
+        adopt({ ...r, version: normalizePlaceholderVersion(r.version) }, 'PlayStoreDesktop');
+      } else {
+        console.log(`[${packageName}] PlayStoreDesktop: Failed - Varies with device`);
+        debug_steps.desktop = 'Varies';
+        if (!finalResult) finalResult = { ...r, version: 'Varies with device', source: 'PlayStoreDesktop' };
       }
     } catch (error) {
+      console.log(`[${packageName}] PlayStoreDesktop: Failed - ${error.message}`);
       debug_steps.desktop = `Failed: ${error.message}`;
-      console.log(`[Step 3] Desktop fetch failed: ${error.message}`);
       lastError = error;
     }
   }
 
-  // === STEP 4: APKMirror (if still "Varies with device") ===
-  if (finalResult && finalResult.version === 'Varies with device') {
-    try {
-      console.log(`[Step 4] Trying APKMirror...`);
-      await randomDelay();
-      const apkMirrorResult = await scrapeFromAPKMirror(packageName);
-      debug_steps.apkmirror = apkMirrorResult.version === 'Varies with device' ? 'Varies' : `Success: ${apkMirrorResult.version}`;
-      console.log(`[Step 4] APKMirror: version=${apkMirrorResult.version}`);
-      
-      if (apkMirrorResult.version !== 'Varies with device') {
-        finalResult.version = apkMirrorResult.version;
-      }
-    } catch (error) {
-      debug_steps.apkmirror = `Failed: ${error.message}`;
-      console.log(`[Step 4] APKMirror failed: ${error.message}`);
-      lastError = error;
-    }
-  }
+  // From here on, every external site gets a polite random delay between requests.
+  // Stop the chain immediately once we have a concrete version.
 
-  // === STEP 5: APKCombo (if still "Varies with device") ===
-  if (finalResult && finalResult.version === 'Varies with device') {
-    try {
-      console.log(`[Step 5] Trying APKCombo...`);
-      await randomDelay();
-      const apkComboResult = await scrapeFromAPKCombo(packageName);
-      debug_steps.apkcombo = apkComboResult.version === 'Varies with device' ? 'Varies' : `Success: ${apkComboResult.version}`;
-      console.log(`[Step 5] APKCombo: version=${apkComboResult.version}`);
-      
-      if (apkComboResult.version !== 'Varies with device') {
-        finalResult.version = apkComboResult.version;
-      }
-    } catch (error) {
-      debug_steps.apkcombo = `Failed: ${error.message}`;
-      console.log(`[Step 5] APKCombo failed: ${error.message}`);
-      lastError = error;
-    }
-  }
+  // === STEP 4: Aptoide API ===
+  if (!hasVersion()) await attempt('aptoide', 'Aptoide', () => scrapeFromAptoide(packageName));
 
-  // === STEP 6: Uptodown (if still "Varies with device") ===
-  if (finalResult && finalResult.version === 'Varies with device') {
-    try {
-      console.log(`[Step 6] Trying Uptodown...`);
-      await randomDelay();
-      const uptodownResult = await scrapeFromUptodown(packageName);
-      debug_steps.uptodown = uptodownResult.version === 'Varies with device' ? 'Varies' : `Success: ${uptodownResult.version}`;
-      console.log(`[Step 6] Uptodown: version=${uptodownResult.version}`);
-      
-      if (uptodownResult.version !== 'Varies with device') {
-        finalResult.version = uptodownResult.version;
-      }
-    } catch (error) {
-      debug_steps.uptodown = `Failed: ${error.message}`;
-      console.log(`[Step 6] Uptodown failed: ${error.message}`);
-      lastError = error;
-    }
-  }
+  // === STEP 5: AppBrain ===
+  if (!hasVersion()) await attempt('appbrain', 'AppBrain', () => scrapeFromAppBrain(packageName, finalResult?.appBrainSlug || ''));
 
-  // === STEP 7: Different countries (if still no data) ===
-  if (!finalResult) {
-    try {
-      console.log(`[Step 7] Trying different countries...`);
-      finalResult = await scrapeWithDifferentCountry(packageName);
-      debug_steps.countries = finalResult.version === 'Varies with device' ? 'Varies' : `Success: ${finalResult.version}`;
-      console.log(`[Step 7] Country: version=${finalResult.version}`);
-    } catch (error) {
-      debug_steps.countries = `Failed: ${error.message}`;
-      console.log(`[Step 7] Different countries failed: ${error.message}`);
-      lastError = error;
-    }
-  }
+  // === STEP 6: Uptodown ===
+  if (!hasVersion()) await attempt('uptodown', 'Uptodown', () => scrapeFromUptodownSearch(packageName));
 
-  console.log(`========== Final result for ${packageName}: version=${finalResult?.version || 'ERROR'} ==========\n`);
+  // === STEP 7: APKMirror ===
+  if (!hasVersion()) await attempt('apkmirror', 'APKMirror', () => scrapeFromAPKMirror(packageName));
+
+  // === STEP 8: APKCombo ===
+  if (!hasVersion()) await attempt('apkcombo', 'APKCombo', () => scrapeFromAPKComboSearch(packageName));
+
+  // === STEP 9: GitHub Releases (open-source apps) ===
+  if (!hasVersion()) await attempt('github', 'GitHubReleases', () => scrapeFromGithubReleases(packageName));
+
+  // === STEP 10: Different countries via library (last resort) ===
+  if (!hasVersion()) await attempt('countries', 'MultiCountry', () => scrapeWithDifferentCountry(packageName));
+
+  console.log(`========== Final result for ${packageName}: version=${finalResult?.version || 'ERROR'} (source=${finalResult?.source || 'none'}) ==========\n`);
 
   // === FINAL: Return result or error ===
   if (finalResult) {

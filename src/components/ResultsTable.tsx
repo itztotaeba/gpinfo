@@ -78,6 +78,19 @@ export function ResultsTable({ results }: ResultsTableProps) {
                             {play!.version}
                             <ExternalLinkIcon className="w-3 h-3 opacity-60" />
                           </a>
+                          {(() => {
+                            const src = play!.source || result.source;
+                            if (!src) return null;
+                            const isPrimary = /googleplayscraper|playstoredesktop|devicesimulation/i.test(src);
+                            return (
+                              <span
+                                className={`chip ${isPrimary ? 'chip-ok' : 'chip-neutral'} !text-[9px] !py-0.5`}
+                                title={isPrimary ? 'Version from Google Play directly' : `Fallback source: ${src}`}
+                              >
+                                {isPrimary ? 'Play Store' : src}
+                              </span>
+                            );
+                          })()}
                         </div>
                       ) : (
                         <span className="chip chip-neutral">

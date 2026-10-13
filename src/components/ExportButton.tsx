@@ -15,6 +15,7 @@ export function ExportButton({ results }: ExportButtonProps) {
       'Publisher Name': result.publisherName || '',
       'Category': result.category || '',
       'Version (Play Store)': result.googlePlay ? (result.googlePlay.version || '') : (result.source === 'huawei-appgallery' ? '' : result.version || ''),
+      'Source (Play Store)': result.googlePlay?.source || (result.source === 'huawei-appgallery' ? '' : result.source) || '',
       'Play Store URL': result.googlePlay?.playStoreUrl
         || (result.googlePlay?.version ? `https://play.google.com/store/apps/details?id=${encodeURIComponent(result.packageName)}` : ''),
       'Version (AppGallery)': result.huaweiAppGallery ? (result.huaweiAppGallery.version || result.huaweiAppGallery.error || '') : (result.source === 'huawei-appgallery' ? result.version || '' : ''),
@@ -37,6 +38,7 @@ export function ExportButton({ results }: ExportButtonProps) {
       { wch: 30 },  // Publisher
       { wch: 20 },  // Category
       { wch: 20 },  // Version Play
+      { wch: 18 },  // Source Play
       { wch: 55 },  // Play URL
       { wch: 20 },  // Version AG
       { wch: 45 },  // AG URL
