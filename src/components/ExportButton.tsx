@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import type { AppInfo } from '../types';
+import { DownloadIcon } from './icons';
 
 interface ExportButtonProps {
   results: AppInfo[];
@@ -14,6 +15,8 @@ export function ExportButton({ results }: ExportButtonProps) {
       'Publisher Name': result.publisherName || '',
       'Category': result.category || '',
       'Version (Play Store)': result.googlePlay ? (result.googlePlay.version || '') : (result.source === 'huawei-appgallery' ? '' : result.version || ''),
+      'Play Store URL': result.googlePlay?.playStoreUrl
+        || (result.googlePlay?.version ? `https://play.google.com/store/apps/details?id=${encodeURIComponent(result.packageName)}` : ''),
       'Version (AppGallery)': result.huaweiAppGallery ? (result.huaweiAppGallery.version || result.huaweiAppGallery.error || '') : (result.source === 'huawei-appgallery' ? result.version || '' : ''),
       'AppGallery URL': result.huaweiAppGallery?.appGalleryUrl || '',
       'Downloads (AppGallery)': result.huaweiAppGallery?.downloadCount ?? '',
@@ -24,30 +27,27 @@ export function ExportButton({ results }: ExportButtonProps) {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Results');
 
-    // Set column widths
     worksheet['!cols'] = [
-      { wch: 5 },
-      { wch: 40 },
-      { wch: 30 },
-      { wch: 30 },
-      { wch: 20 },
-      { wch: 20 },
-      { wch: 20 },
-      { wch: 45 },
-      { wch: 20 },
-      { wch: 15 },
+      { wch: 5 },   // No
+      { wch: 40 },  // Package Name
+      { wch: 30 },  // App Name
+      { wch: 30 },  // Publisher
+      { wch: 20 },  // Category
+      { wch: 20 },  // Version Play
+      { wch: 55 },  // Play URL
+      { wch: 20 },  // Version AG
+      { wch: 45 },  // AG URL
+      { wch: 20 },  // Downloads
+      { wch: 15 },  // Status
     ];
 
-    XLSX.writeFile(workbook, `playstore-scraper-results-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.writeFile(workbook, `app-scraper-results-${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   return (
-    <button
-      onClick={handleExport}
-      className="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white font-medium rounded-lg shadow-lg shadow-blue-500/25 transition-all hover:scale-105 flex items-center gap-2"
-    >
-      <span>📥</span>
-      <span>Export Excel</span>
+    <button onClick={handleExport} className="btn btn-primary">
+      <DownloadIcon className="w-4 h-4" />
+      Export Excel
     </button>
   );
 }

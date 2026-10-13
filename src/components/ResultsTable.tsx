@@ -1,154 +1,183 @@
 import { useState } from 'react';
 import type { AppInfo } from '../types';
+import {
+  PlayIcon,
+  HuaweiIcon,
+  ExternalLinkIcon,
+  CheckIcon,
+  AlertIcon,
+  XIcon,
+  BugIcon,
+} from './icons';
 
 interface ResultsTableProps {
   results: AppInfo[];
 }
 
+const defaultPlayUrl = (pkg: string) =>
+  `https://play.google.com/store/apps/details?id=${encodeURIComponent(pkg)}`;
+
 export function ResultsTable({ results }: ResultsTableProps) {
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
 
   return (
-    <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full">
+    <div className="glass overflow-hidden">
+      <div className="overflow-x-auto" style={{ maxHeight: '70vh' }}>
+        <table className="table-glass">
           <thead>
-            <tr className="bg-white/5 border-b border-white/10">
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                #
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                Package Name
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                App Name
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                Publisher Name
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                Category
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                Version
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                AppGallery
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                Debug
-              </th>
+            <tr>
+              <th>#</th>
+              <th>Package Name</th>
+              <th>App Name</th>
+              <th>Publisher</th>
+              <th>Category</th>
+              <th>Play Store</th>
+              <th>AppGallery</th>
+              <th>Status</th>
+              <th>Debug</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-white/5">
-            {results.map((result, idx) => (
-              <>
-                <tr key={idx} className="hover:bg-white/5 transition-colors">
-                  <td className="px-4 py-3 text-sm text-gray-500">
-                    {idx + 1}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-sm font-mono text-blue-300">
-                      {result.packageName}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-sm text-white">
-                      {result.appName || '-'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-sm text-green-300 font-medium">
-                      {result.publisherName || '-'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-500/20 text-purple-300">
-                      {result.category || '-'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-sm font-mono text-yellow-300">
-                      {result.version || '-'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {result.huaweiAppGallery?.version ? (
-                      <div className="flex flex-col gap-0.5">
-                        <a
-                          href={result.huaweiAppGallery.appGalleryUrl || 'https://appgallery.huawei.com/'}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm font-mono text-orange-300 hover:text-orange-200 underline decoration-dotted"
-                          title={result.huaweiAppGallery.appGalleryUrl}
+          <tbody>
+            {results.map((result, idx) => {
+              const play = result.googlePlay;
+              const ag = result.huaweiAppGallery;
+              const hasPlay = !!play?.version;
+              const playUrl = play?.playStoreUrl || defaultPlayUrl(result.packageName);
+              const hasAg = !!ag?.version;
+
+              return (
+                <>
+                  <tr key={idx}>
+                    <td className="text-[var(--ink-faint)]">{idx + 1}</td>
+                    <td>
+                      <span className="font-mono text-[13px] text-sky-300">
+                        {result.packageName}
+                      </span>
+                    </td>
+                    <td className="text-white font-medium">{result.appName || '-'}</td>
+                    <td className="text-emerald-300">{result.publisherName || '-'}</td>
+                    <td>
+                      <span className="chip">{result.category || '-'}</span>
+                    </td>
+
+                    {/* Play Store — clickable version opens the Play Store page */}
+                    <td>
+                      {hasPlay ? (
+                        <div className="flex flex-col gap-1 items-start">
+                          <a
+                            href={playUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="link-glass link-play"
+                            title={`Buka ${playUrl}`}
+                          >
+                            <PlayIcon className="w-3 h-3 shrink-0" />
+                            {play!.version}
+                            <ExternalLinkIcon className="w-3 h-3 opacity-60" />
+                          </a>
+                        </div>
+                      ) : (
+                        <span className="chip chip-neutral">
+                          {play?.error ? 'Not found' : '-'}
+                        </span>
+                      )}
+                    </td>
+
+                    {/* AppGallery — clickable version opens the AppGallery page */}
+                    <td>
+                      {hasAg ? (
+                        <div className="flex flex-col gap-1 items-start">
+                          <a
+                            href={ag!.appGalleryUrl || 'https://appgallery.huawei.com/'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="link-glass link-ag"
+                            title={ag!.appGalleryUrl}
+                          >
+                            <HuaweiIcon className="w-3 h-3 shrink-0" />
+                            {ag!.version}
+                            <ExternalLinkIcon className="w-3 h-3 opacity-60" />
+                          </a>
+                          {ag!.downloadCount ? (
+                            <span className="text-[10px] text-[var(--ink-faint)] pl-1">
+                              {ag!.downloadCount} downloads
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="chip chip-neutral">
+                          {ag?.error ? 'Not found' : '-'}
+                        </span>
+                      )}
+                    </td>
+
+                    <td>
+                      {result.error ? (
+                        <span className="chip chip-fail">
+                          <AlertIcon className="w-3.5 h-3.5" />
+                          {result.error.length > 28 ? `${result.error.slice(0, 28)}…` : result.error}
+                        </span>
+                      ) : (
+                        <span className="chip chip-ok">
+                          <CheckIcon className="w-3.5 h-3.5" />
+                          OK
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      {result.debug_steps && (
+                        <button
+                          onClick={() => setExpandedRow(expandedRow === idx ? null : idx)}
+                          className="btn btn-ghost !px-3 !py-1 !text-xs"
                         >
-                          {result.huaweiAppGallery.version}
-                        </a>
-                        {result.huaweiAppGallery.downloadCount ? (
-                          <span className="text-[10px] text-gray-500">
-                            ⬇ {result.huaweiAppGallery.downloadCount}
-                          </span>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400">
-                        {result.huaweiAppGallery?.error ? '❌ Not found' : '-'}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {result.error ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/20 text-red-300">
-                        ⚠️ {result.error}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-300">
-                        ✅ OK
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {result.debug_steps && (
-                      <button
-                        onClick={() => setExpandedRow(expandedRow === idx ? null : idx)}
-                        className="text-xs text-blue-400 hover:text-blue-300 underline"
-                      >
-                        {expandedRow === idx ? 'Hide' : 'Show'}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-                {expandedRow === idx && result.debug_steps && (
-                  <tr className="bg-black/20">
-                    <td colSpan={9} className="px-4 py-3">
-                      <div className="text-xs font-mono text-gray-400 space-y-1">
-                        <div className="font-semibold text-gray-300 mb-2">Debug Steps:</div>
-                        {Object.entries(result.debug_steps).map(([step, status]) => {
-                          const statusStr = String(status);
-                          return (
-                            <div key={step} className="flex gap-2">
-                              <span className="text-blue-400 min-w-[100px]">{step}:</span>
-                              <span className={
-                                statusStr.startsWith('Success')
-                                  ? 'text-green-400'
-                                  : statusStr.startsWith('Failed')
-                                  ? 'text-red-400'
-                                  : 'text-yellow-400'
-                              }>
-                                {statusStr}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
+                          <BugIcon className="w-3.5 h-3.5" />
+                          {expandedRow === idx ? 'Hide' : 'Show'}
+                        </button>
+                      )}
                     </td>
                   </tr>
-                )}
-              </>
-            ))}
+                  {expandedRow === idx && result.debug_steps && (
+                    <tr className="bg-black/30">
+                      <td colSpan={9} className="px-4 py-3">
+                        <div className="text-xs font-mono space-y-1.5">
+                          <div className="font-semibold text-[var(--ink-muted)] mb-2 uppercase tracking-wider text-[10px]">
+                            Debug Steps
+                          </div>
+                          {Object.entries(result.debug_steps).map(([step, status]) => {
+                            const statusStr = String(status);
+                            const ok = statusStr.startsWith('Success');
+                            const fail = statusStr.startsWith('Failed');
+                            return (
+                              <div key={step} className="flex gap-2 items-center">
+                                <span
+                                  className={
+                                    ok
+                                      ? 'text-emerald-400'
+                                      : fail
+                                      ? 'text-red-400'
+                                      : 'text-amber-400'
+                                  }
+                                >
+                                  {ok ? (
+                                    <CheckIcon className="w-3.5 h-3.5" />
+                                  ) : fail ? (
+                                    <XIcon className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <AlertIcon className="w-3.5 h-3.5" />
+                                  )}
+                                </span>
+                                <span className="text-sky-400 min-w-[110px]">{step}:</span>
+                                <span className="text-[var(--ink-muted)]">{statusStr}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
+              );
+            })}
           </tbody>
         </table>
       </div>
