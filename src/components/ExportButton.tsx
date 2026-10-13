@@ -18,6 +18,7 @@ export function ExportButton({ results }: ExportButtonProps) {
       'Play Store URL': result.googlePlay?.playStoreUrl
         || (result.googlePlay?.version ? `https://play.google.com/store/apps/details?id=${encodeURIComponent(result.packageName)}` : ''),
       'Version (AppGallery)': result.huaweiAppGallery ? (result.huaweiAppGallery.version || result.huaweiAppGallery.error || '') : (result.source === 'huawei-appgallery' ? result.version || '' : ''),
+      'App ID (AppGallery)': result.huaweiAppGallery?.appGalleryAppId || '',
       'AppGallery URL': result.huaweiAppGallery?.appGalleryUrl || '',
       'Downloads (AppGallery)': result.huaweiAppGallery?.downloadCount ?? '',
       'Status': result.error ? `Error: ${result.error}` : 'Success',

@@ -440,7 +440,7 @@ export default function App() {
                 </li>
                 <li className="flex items-start gap-2.5">
                   <HuaweiIcon className="w-4 h-4 text-orange-600 mt-0.5 shrink-0" />
-                  <span><strong className="text-[var(--ink)]">Huawei AppGallery:</strong> scraping via API edge regional appgallery.huawei.com — mengembalikan versi, URL halaman aplikasi, dan jumlah download bila tersedia.</span>
+                  <span><strong className="text-[var(--ink)]">Huawei AppGallery:</strong> scraping via API edge regional appgallery.huawei.com — mengembalikan versi, App ID (contoh: C103097007), URL halaman aplikasi, dan jumlah download bila tersedia.</span>
                 </li>
                 <li className="flex items-start gap-2.5">
                   <span className="text-amber-500 mt-0.5 shrink-0"><AlertIcon className="w-4 h-4" /></span>

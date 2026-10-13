@@ -33,6 +33,7 @@ export function ResultsTable({ results }: ResultsTableProps) {
               <th>Category</th>
               <th>Play Store</th>
               <th>AppGallery</th>
+              <th>App ID</th>
               <th>Status</th>
               <th>Debug</th>
             </tr>
@@ -108,6 +109,24 @@ export function ResultsTable({ results }: ResultsTableProps) {
                         <span className="chip chip-neutral">
                           {ag?.error ? 'Not found' : '-'}
                         </span>
+                      )}
+                    </td>
+
+                    {/* AppGallery App ID — clickable, opens the AppGallery page */}
+                    <td>
+                      {hasAg && ag!.appGalleryAppId ? (
+                        <a
+                          href={ag!.appGalleryUrl || `https://appgallery.huawei.com/app/${ag!.appGalleryAppId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="link-glass link-ag font-mono !text-[12px]"
+                          title={`Buka ${ag!.appGalleryUrl || ag!.appGalleryAppId}`}
+                        >
+                          {ag!.appGalleryAppId}
+                          <ExternalLinkIcon className="w-3 h-3 opacity-60" />
+                        </a>
+                      ) : (
+                        <span className="chip chip-neutral">-</span>
                       )}
                     </td>
 

@@ -688,6 +688,7 @@ async function scrapeApp(packageName, source = 'both') {
           appName: result.appName,
           publisherName: result.publisherName,
           category: result.category,
+          appGalleryAppId: result.appGalleryAppId,
           appGalleryUrl: result.appGalleryUrl,
           downloadCount: result.downloadCount,
         },
@@ -760,6 +761,7 @@ async function scrapeApp(packageName, source = 'both') {
             appName: ag.appName,
             publisherName: ag.publisherName,
             category: ag.category,
+            appGalleryAppId: ag.appGalleryAppId,
             appGalleryUrl: ag.appGalleryUrl,
             downloadCount: ag.downloadCount,
           }
