@@ -8,6 +8,7 @@ import {
   AlertIcon,
   XIcon,
   BugIcon,
+  CalendarIcon,
 } from './icons';
 
 interface ResultsTableProps {
@@ -33,6 +34,7 @@ export function ResultsTable({ results }: ResultsTableProps) {
               <th>Category</th>
               <th>Play Store</th>
               <th>AppGallery</th>
+              <th>Last Update</th>
               <th>App ID</th>
               <th>Status</th>
               <th>Debug</th>
@@ -109,6 +111,21 @@ export function ResultsTable({ results }: ResultsTableProps) {
                         <span className="chip chip-neutral">
                           {ag?.error ? 'Not found' : '-'}
                         </span>
+                      )}
+                    </td>
+
+                    {/* AppGallery Last Update — from releaseDate epoch-millis */}
+                    <td>
+                      {hasAg && ag!.lastUpdate ? (
+                        <span
+                          className="chip chip-neutral !text-[11px]"
+                          title={ag!.lastUpdateTimestamp ? `Epoch: ${ag!.lastUpdateTimestamp}` : undefined}
+                        >
+                          <CalendarIcon className="w-3 h-3 opacity-70" />
+                          {ag!.lastUpdate}
+                        </span>
+                      ) : (
+                        <span className="chip chip-neutral">-</span>
                       )}
                     </td>
 

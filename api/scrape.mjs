@@ -576,6 +576,19 @@ function agLangFromLocale(localeId) {
 }
 
 /**
+ * Format an epoch-millis timestamp (as used by AppGallery's releaseDate field)
+ * into a human readable "Last Update" string, e.g. "Oct 7, 2026".
+ * Returns '' for missing/invalid values.
+ */
+function formatAgDate(epochMillis) {
+  const n = Number(epochMillis);
+  if (!n || !Number.isFinite(n)) return '';
+  const d = new Date(n);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+/**
  * Convert raw AppGallery /webedge/appinfo JSON into our result shape.
  */
 function mapAppGalleryData(data, packageName) {
@@ -596,6 +609,8 @@ function mapAppGalleryData(data, packageName) {
     downloadCount: data.downCount || '',
     size: data.size || 0,
     releaseDate: data.releaseDate || null,
+    lastUpdate: formatAgDate(data.releaseDate),
+    lastUpdateTimestamp: Number(data.releaseDate) || null,
     lang: agLangFromLocale(data.localeId),
   };
 }
@@ -691,6 +706,8 @@ async function scrapeApp(packageName, source = 'both') {
           appGalleryAppId: result.appGalleryAppId,
           appGalleryUrl: result.appGalleryUrl,
           downloadCount: result.downloadCount,
+          lastUpdate: result.lastUpdate,
+          lastUpdateTimestamp: result.lastUpdateTimestamp,
         },
         debug_steps,
       };
@@ -764,6 +781,8 @@ async function scrapeApp(packageName, source = 'both') {
             appGalleryAppId: ag.appGalleryAppId,
             appGalleryUrl: ag.appGalleryUrl,
             downloadCount: ag.downloadCount,
+            lastUpdate: ag.lastUpdate,
+            lastUpdateTimestamp: ag.lastUpdateTimestamp,
           }
         : { error: agSettled.reason?.message || 'Not available' },
       debug_steps,

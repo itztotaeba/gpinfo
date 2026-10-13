@@ -193,3 +193,10 @@ export const FileIcon = ({ className }: IconProps) => (
     <path d="M14 3v5h6" />
   </Svg>
 );
+
+export const CalendarIcon = ({ className }: IconProps) => (
+  <Svg className={className}>
+    <rect x="3" y="5" width="18" height="16" rx="2" />
+    <path d="M3 10h18M8 3v4M16 3v4" />
+  </Svg>
+);
