@@ -7,6 +7,8 @@ export interface SourceInfo {
   appGalleryUrl?: string;
   playStoreUrl?: string;
   downloadCount?: string | number;
+  /** Winning scraping method, e.g. 'GooglePlayScraper', 'Uptodown', 'Aptoide' */
+  source?: string;
   error?: string;
 }
 
