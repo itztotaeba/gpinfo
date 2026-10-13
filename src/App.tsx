@@ -6,6 +6,8 @@ import { ProgressBar } from './components/ProgressBar';
 import { ExportButton } from './components/ExportButton';
 import type { AppInfo } from './types';
 
+export type ScrapeSource = 'both' | 'google-play' | 'huawei-appgallery';
+
 export default function App() {
   const [packageNames, setPackageNames] = useState<string[]>([]);
   const [results, setResults] = useState<AppInfo[]>([]);
@@ -14,6 +16,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'upload' | 'manual'>('upload');
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [currentProcessing, setCurrentProcessing] = useState<string>('');
+  const [source, setSource] = useState<ScrapeSource>('both');
 
   const handlePackagesLoaded = useCallback((packages: string[]) => {
     setPackageNames(packages);
@@ -26,7 +29,7 @@ export default function App() {
       const response = await fetch('/api/scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ packageName }),
+        body: JSON.stringify({ packageName, source }),
       });
 
       if (response.ok) {
@@ -89,7 +92,7 @@ export default function App() {
 
     setCurrentProcessing('');
     setIsProcessing(false);
-  }, [packageNames, results]);
+  }, [packageNames, results, source]);
 
   const handleRetryFailed = useCallback(() => {
     const failedPackages = results
@@ -175,6 +178,28 @@ export default function App() {
         {/* Input Section */}
         {packageNames.length === 0 && !isProcessing && (
           <div className="mb-8">
+            {/* Source Selector */}
+            <div className="flex flex-wrap items-center gap-2 mb-6">
+              <span className="text-sm text-gray-400 font-medium mr-1">Sumber data:</span>
+              {([
+                { value: 'both', label: '🔀 Play Store + AppGallery' },
+                { value: 'google-play', label: '▶️ Google Play Store' },
+                { value: 'huawei-appgallery', label: '📱 Huawei AppGallery' },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setSource(opt.value)}
+                  className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all ${
+                    source === opt.value
+                      ? 'bg-blue-500/30 text-blue-200 border border-blue-400/50 shadow-lg'
+                      : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
             {/* Tabs */}
             <div className="flex flex-wrap gap-2 mb-6">
               <button

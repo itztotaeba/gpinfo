@@ -33,6 +33,9 @@ export function ResultsTable({ results }: ResultsTableProps) {
                 Version
               </th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                AppGallery
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
                 Status
               </th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
@@ -73,6 +76,30 @@ export function ResultsTable({ results }: ResultsTableProps) {
                     </span>
                   </td>
                   <td className="px-4 py-3">
+                    {result.huaweiAppGallery?.version ? (
+                      <div className="flex flex-col gap-0.5">
+                        <a
+                          href={result.huaweiAppGallery.appGalleryUrl || 'https://appgallery.huawei.com/'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-mono text-orange-300 hover:text-orange-200 underline decoration-dotted"
+                          title={result.huaweiAppGallery.appGalleryUrl}
+                        >
+                          {result.huaweiAppGallery.version}
+                        </a>
+                        {result.huaweiAppGallery.downloadCount ? (
+                          <span className="text-[10px] text-gray-500">
+                            ⬇ {result.huaweiAppGallery.downloadCount}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400">
+                        {result.huaweiAppGallery?.error ? '❌ Not found' : '-'}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
                     {result.error ? (
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/20 text-red-300">
                         ⚠️ {result.error}
@@ -96,7 +123,7 @@ export function ResultsTable({ results }: ResultsTableProps) {
                 </tr>
                 {expandedRow === idx && result.debug_steps && (
                   <tr className="bg-black/20">
-                    <td colSpan={8} className="px-4 py-3">
+                    <td colSpan={9} className="px-4 py-3">
                       <div className="text-xs font-mono text-gray-400 space-y-1">
                         <div className="font-semibold text-gray-300 mb-2">Debug Steps:</div>
                         {Object.entries(result.debug_steps).map(([step, status]) => {

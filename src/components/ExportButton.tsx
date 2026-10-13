@@ -13,7 +13,10 @@ export function ExportButton({ results }: ExportButtonProps) {
       'App Name': result.appName || '',
       'Publisher Name': result.publisherName || '',
       'Category': result.category || '',
-      'Version': result.version || '',
+      'Version (Play Store)': result.googlePlay ? (result.googlePlay.version || '') : (result.source === 'huawei-appgallery' ? '' : result.version || ''),
+      'Version (AppGallery)': result.huaweiAppGallery ? (result.huaweiAppGallery.version || result.huaweiAppGallery.error || '') : (result.source === 'huawei-appgallery' ? result.version || '' : ''),
+      'AppGallery URL': result.huaweiAppGallery?.appGalleryUrl || '',
+      'Downloads (AppGallery)': result.huaweiAppGallery?.downloadCount ?? '',
       'Status': result.error ? `Error: ${result.error}` : 'Success',
     }));
 
@@ -28,6 +31,9 @@ export function ExportButton({ results }: ExportButtonProps) {
       { wch: 30 },
       { wch: 30 },
       { wch: 20 },
+      { wch: 20 },
+      { wch: 20 },
+      { wch: 45 },
       { wch: 20 },
       { wch: 15 },
     ];
