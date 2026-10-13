@@ -3,6 +3,7 @@ export interface SourceInfo {
   appName?: string;
   publisherName?: string;
   category?: string;
+  appGalleryAppId?: string;
   appGalleryUrl?: string;
   playStoreUrl?: string;
   downloadCount?: string | number;
