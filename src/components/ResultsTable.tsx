@@ -50,12 +50,12 @@ export function ResultsTable({ results }: ResultsTableProps) {
                   <tr key={idx}>
                     <td className="text-[var(--ink-faint)]">{idx + 1}</td>
                     <td>
-                      <span className="font-mono text-[13px] text-sky-300">
+                      <span className="font-mono text-[13px] text-sky-700">
                         {result.packageName}
                       </span>
                     </td>
-                    <td className="text-white font-medium">{result.appName || '-'}</td>
-                    <td className="text-emerald-300">{result.publisherName || '-'}</td>
+                    <td className="font-medium text-[var(--ink)]">{result.appName || '-'}</td>
+                    <td className="text-emerald-700">{result.publisherName || '-'}</td>
                     <td>
                       <span className="chip">{result.category || '-'}</span>
                     </td>
@@ -137,7 +137,7 @@ export function ResultsTable({ results }: ResultsTableProps) {
                     </td>
                   </tr>
                   {expandedRow === idx && result.debug_steps && (
-                    <tr className="bg-black/30">
+                    <tr className="bg-slate-100/70">
                       <td colSpan={9} className="px-4 py-3">
                         <div className="text-xs font-mono space-y-1.5">
                           <div className="font-semibold text-[var(--ink-muted)] mb-2 uppercase tracking-wider text-[10px]">
@@ -166,7 +166,7 @@ export function ResultsTable({ results }: ResultsTableProps) {
                                     <AlertIcon className="w-3.5 h-3.5" />
                                   )}
                                 </span>
-                                <span className="text-sky-400 min-w-[110px]">{step}:</span>
+                                <span className="text-sky-700 min-w-[110px]">{step}:</span>
                                 <span className="text-[var(--ink-muted)]">{statusStr}</span>
                               </div>
                             );
