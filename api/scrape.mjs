@@ -681,7 +681,18 @@ async function scrapeApp(packageName, source = 'both') {
       const result = await scrapeWithAppGallery(packageName);
       debug_steps.appgallery = `Success: ${result.version}`;
       console.log(`[AppGallery] Final result for ${packageName}: version=${result.version}\n`);
-      return { ...result, debug_steps };
+      return {
+        ...result,
+        huaweiAppGallery: {
+          version: result.version,
+          appName: result.appName,
+          publisherName: result.publisherName,
+          category: result.category,
+          appGalleryUrl: result.appGalleryUrl,
+          downloadCount: result.downloadCount,
+        },
+        debug_steps,
+      };
     } catch (error) {
       debug_steps.appgallery = `Failed: ${error.message}`;
       console.log(`[AppGallery] Failed for ${packageName}: ${error.message}\n`);
@@ -741,7 +752,7 @@ async function scrapeApp(packageName, source = 'both') {
     const merged = {
       ...primary,
       googlePlay: play && !play.error
-        ? { version: play.version, appName: play.appName, publisherName: play.publisherName, category: play.category }
+        ? { version: play.version, appName: play.appName, publisherName: play.publisherName, category: play.category, playStoreUrl: `https://play.google.com/store/apps/details?id=${encodeURIComponent(packageName)}` }
         : { error: play?.error || playSettled.reason?.message || 'Not available' },
       huaweiAppGallery: ag
         ? {
@@ -761,7 +772,18 @@ async function scrapeApp(packageName, source = 'both') {
   }
 
   // === GOOGLE PLAY ONLY (default pipeline) ===
-  return scrapePlayStore(packageName);
+  const play = await scrapePlayStore(packageName);
+  if (!play.error) {
+    play.playStoreUrl = `https://play.google.com/store/apps/details?id=${encodeURIComponent(packageName)}`;
+    play.googlePlay = {
+      version: play.version,
+      appName: play.appName,
+      publisherName: play.publisherName,
+      category: play.category,
+      playStoreUrl: play.playStoreUrl,
+    };
+  }
+  return play;
 }
 
 /**

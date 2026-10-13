@@ -4,6 +4,7 @@ export interface SourceInfo {
   publisherName?: string;
   category?: string;
   appGalleryUrl?: string;
+  playStoreUrl?: string;
   downloadCount?: string | number;
   error?: string;
 }

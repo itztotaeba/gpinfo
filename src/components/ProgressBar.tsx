@@ -1,3 +1,5 @@
+import { SpinnerIcon } from './icons';
+
 interface ProgressBarProps {
   current: number;
   total: number;
@@ -7,24 +9,21 @@ export function ProgressBar({ current, total }: ProgressBarProps) {
   const percentage = total > 0 ? Math.round((current / total) * 100) : 0;
 
   return (
-    <div className="mb-8 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
+    <div className="glass p-6">
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 border-2 border-green-400 border-t-transparent rounded-full animate-spin"></div>
-          <span className="text-sm font-medium text-white">Processing...</span>
+        <div className="flex items-center gap-2.5">
+          <SpinnerIcon className="w-4 h-4 text-sky-300" />
+          <span className="text-sm font-semibold text-white">Processing...</span>
         </div>
-        <span className="text-sm text-gray-400">
+        <span className="text-sm text-[var(--ink-muted)] tabular-nums">
           {current} / {total} ({percentage}%)
         </span>
       </div>
-      <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-gradient-to-r from-green-400 to-emerald-500 rounded-full transition-all duration-500 ease-out"
-          style={{ width: `${percentage}%` }}
-        ></div>
+      <div className="progress-track">
+        <div className="progress-fill" style={{ width: `${percentage}%` }} />
       </div>
-      <p className="text-xs text-gray-500 mt-2">
-        ⏱️ Estimasi waktu: ~{(total - current)} detik (1 detik per package)
+      <p className="text-xs text-[var(--ink-faint)] mt-2.5">
+        Sisa ~{total - current} package — proses berjalan otomatis satu per satu
       </p>
     </div>
   );
