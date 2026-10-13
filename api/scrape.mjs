@@ -1078,6 +1078,32 @@ async function scrapeApp(packageName, source = 'both') {
 }
 
 /**
+ * Normalize an implausible placeholder version into the canonical
+ * "Varies with device" marker so the fallback chain can recognize it.
+ * Newer google-play-scraper releases return the literal string "VARY"
+ * for device-dependent apps instead of "Varies with device".
+ */
+function normalizePlaceholderVersion(v) {
+  if (!v) return v;
+  const s = String(v).trim();
+  if (/^vary(ing)?$/i.test(s)) return 'Varies with device';
+  return s;
+}
+
+/**
+ * True when the given value is a usable, concrete version string
+ * (not empty and not any known "varies" placeholder variant).
+ */
+function isRealVersion(v) {
+  if (!v) return false;
+  const s = String(v).trim();
+  if (!s) return false;
+  if (/^vary(ing)?$/i.test(s)) return false;
+  if (/^varies(\s+with\s+device)?$/i.test(s)) return false;
+  return true;
+}
+
+/**
  * Google Play scraping pipeline (sequential fallback chain):
  *   1. google-play-scraper library
  *   2. Play Store device simulation
@@ -1090,7 +1116,7 @@ async function scrapeApp(packageName, source = 'both') {
  *   9. GitHub Releases      (NEW - open-source mapping)
  *  10. Multi-country library retry
  *
- * Stops as soon as a real version (not "Varies with device") is found.
+ * Stops as soon as a real version (not "Varies with device" / "VARY") is found.
  * Every step logs: [packageName] MethodName: Status - detail
  * The winning method is reported in the `source` field of the result.
  */
@@ -1099,7 +1125,7 @@ async function scrapePlayStore(packageName) {
   let lastError = null;
   const debug_steps = {};
 
-  const hasVersion = () => !!(finalResult && finalResult.version && finalResult.version !== 'Varies with device');
+  const hasVersion = () => !!(finalResult && isRealVersion(finalResult.version));
 
   // Adopt a fallback's version into the result (keeping richer metadata we may already have)
   const adopt = (r, sourceName) => {
@@ -1118,15 +1144,15 @@ async function scrapePlayStore(packageName) {
     await randomDelay(200, 600);
     try {
       const r = await fn();
-      if (r && r.version && r.version !== 'Varies with device') {
+      if (r && isRealVersion(r.version)) {
         console.log(`[${packageName}] ${methodName}: Success - Got version ${r.version}`);
         debug_steps[stepKey] = `Success: ${r.version}`;
-        adopt(r, methodName);
+        adopt({ ...r, version: normalizePlaceholderVersion(r.version) }, methodName);
         return true;
       }
       console.log(`[${packageName}] ${methodName}: Failed - No usable version (Varies with device)`);
       debug_steps[stepKey] = 'Failed: Varies with device';
-      if (!finalResult && r) finalResult = { ...r, source: methodName };
+      if (!finalResult && r) finalResult = { ...r, version: 'Varies with device', source: methodName };
       return false;
     } catch (error) {
       console.log(`[${packageName}] ${methodName}: Failed - ${error.message}`);
@@ -1141,14 +1167,14 @@ async function scrapePlayStore(packageName) {
   // === STEP 1: google-play-scraper library ===
   try {
     const r = await scrapeWithLibrary(packageName);
-    if (r.version && r.version !== 'Varies with device') {
+    if (isRealVersion(r.version)) {
       console.log(`[${packageName}] GooglePlayScraper: Success - Got version ${r.version}`);
       debug_steps.library = `Success: ${r.version}`;
-      adopt(r, 'GooglePlayScraper');
+      adopt({ ...r, version: normalizePlaceholderVersion(r.version) }, 'GooglePlayScraper');
     } else {
-      console.log(`[${packageName}] GooglePlayScraper: Failed - Varies with device`);
+      console.log(`[${packageName}] GooglePlayScraper: Failed - Varies with device (${JSON.stringify(r.version)})`);
       debug_steps.library = 'Varies';
-      finalResult = { ...r, source: 'GooglePlayScraper' };
+      finalResult = { ...r, version: 'Varies with device', source: 'GooglePlayScraper' };
     }
   } catch (error) {
     console.log(`[${packageName}] GooglePlayScraper: Failed - ${error.message}`);
@@ -1160,14 +1186,14 @@ async function scrapePlayStore(packageName) {
   if (!hasVersion()) {
     try {
       const r = await scrapeWithDeviceSimulation(packageName);
-      if (r.version !== 'Varies with device') {
+      if (isRealVersion(r.version)) {
         console.log(`[${packageName}] DeviceSimulation: Success - Got version ${r.version}`);
         debug_steps.device = `Success: ${r.version}`;
-        adopt(r, 'DeviceSimulation');
+        adopt({ ...r, version: normalizePlaceholderVersion(r.version) }, 'DeviceSimulation');
       } else {
         console.log(`[${packageName}] DeviceSimulation: Failed - Varies with device`);
         debug_steps.device = 'Varies';
-        if (!finalResult) finalResult = { ...r, source: 'DeviceSimulation' };
+        if (!finalResult) finalResult = { ...r, version: 'Varies with device', source: 'DeviceSimulation' };
       }
     } catch (error) {
       console.log(`[${packageName}] DeviceSimulation: Failed - ${error.message}`);
@@ -1180,14 +1206,14 @@ async function scrapePlayStore(packageName) {
   if (!hasVersion()) {
     try {
       const r = await scrapeWithDesktop(packageName);
-      if (r.version !== 'Varies with device') {
+      if (isRealVersion(r.version)) {
         console.log(`[${packageName}] PlayStoreDesktop: Success - Got version ${r.version}`);
         debug_steps.desktop = `Success: ${r.version}`;
-        adopt(r, 'PlayStoreDesktop');
+        adopt({ ...r, version: normalizePlaceholderVersion(r.version) }, 'PlayStoreDesktop');
       } else {
         console.log(`[${packageName}] PlayStoreDesktop: Failed - Varies with device`);
         debug_steps.desktop = 'Varies';
-        if (!finalResult) finalResult = { ...r, source: 'PlayStoreDesktop' };
+        if (!finalResult) finalResult = { ...r, version: 'Varies with device', source: 'PlayStoreDesktop' };
       }
     } catch (error) {
       console.log(`[${packageName}] PlayStoreDesktop: Failed - ${error.message}`);
