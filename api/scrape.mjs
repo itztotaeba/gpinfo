@@ -553,11 +553,151 @@ async function scrapeFromUptodown(packageName) {
 }
 
 /**
+ * Huawei AppGallery edge API endpoints (regional load balancers).
+ * POST /webedge/appinfo with JSON body { pkgName, appId } returns app metadata as JSON.
+ * Discovered from the official AppGallery web frontend (appgallery.huawei.com).
+ */
+const APPGALLERY_EDGE_BASES = [
+  'https://web-dra.hispace.dbankcloud.com', // Singapore (oversea default)
+  'https://web-dre.hispace.dbankcloud.com', // Europe
+  'https://web-drcn.hispace.dbankcloud.com', // China
+  'https://web-drru.hispace.dbankcloud.com', // Russia
+];
+
+// AppGallery language codes: "10118" = English, "64" = Chinese
+const APPGALLERY_LANG_MAP = { en: '10118', id: '10123', zh: '64' };
+
+/**
+ * Map numeric AppGallery localeId to a readable language code.
+ */
+function agLangFromLocale(localeId) {
+  if (!localeId) return 'en';
+  return String(localeId) === '10118' ? 'en' : String(localeId) === '64' ? 'zh' : String(localeId);
+}
+
+/**
+ * Convert raw AppGallery /webedge/appinfo JSON into our result shape.
+ */
+function mapAppGalleryData(data, packageName) {
+  const appName = data.name || 'Unknown';
+  const publisherName = data.developerName || data.supplier || 'Not found';
+  const category = data.kindName || 'Not found';
+  const version = data.version || 'Not found';
+
+  return {
+    packageName,
+    appName,
+    publisherName,
+    category,
+    version,
+    source: 'huawei-appgallery',
+    appGalleryAppId: data.appId || '',
+    appGalleryUrl: data.appId ? `https://appgallery.huawei.com/app/${data.appId}` : '',
+    downloadCount: data.downCount || '',
+    size: data.size || 0,
+    releaseDate: data.releaseDate || null,
+    lang: agLangFromLocale(data.localeId),
+  };
+}
+
+/**
+ * Scrape app info from Huawei AppGallery via its internal edge API.
+ * Works directly with package name (pkgName) - no App ID needed.
+ * Tries multiple regional edge bases until one returns valid data.
+ */
+async function scrapeWithAppGallery(packageName) {
+  const errors = [];
+
+  for (const base of APPGALLERY_EDGE_BASES) {
+    try {
+      const response = await fetch(`${base}/webedge/appinfo`, {
+        method: 'POST',
+        headers: {
+          'User-Agent': DESKTOP_UA,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/plain, */*',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Origin': 'https://appgallery.huawei.com',
+          'Referer': 'https://appgallery.huawei.com/',
+        },
+        body: JSON.stringify({
+          pkgName: packageName,
+          appId: '',
+          serviceType: 20,
+          clientVersion: '10.4.1.300',
+          language: APPGALLERY_LANG_MAP.en,
+        }),
+        redirect: 'follow',
+      });
+
+      if (!response.ok) {
+        errors.push(`${new URL(base).hostname}: HTTP ${response.status}`);
+        continue;
+      }
+
+      const text = await response.text();
+      if (!text || text.length === 0) {
+        // Empty 200 response = app not available on this region, try next
+        errors.push(`${new URL(base).hostname}: empty response`);
+        continue;
+      }
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        errors.push(`${new URL(base).hostname}: invalid JSON`);
+        continue;
+      }
+
+      // Not-found responses have no pkgName/name fields
+      if (!data || (!data.pkgName && !data.name)) {
+        errors.push(`${new URL(base).hostname}: app not found`);
+        continue;
+      }
+
+      console.log(`[${packageName}] AppGallery (${new URL(base).hostname}): Got "${data.name}" v${data.version}`);
+      return mapAppGalleryData(data, packageName);
+    } catch (error) {
+      errors.push(`${new URL(base).hostname}: ${error.message}`);
+      continue;
+    }
+  }
+
+  throw new Error(`AppGallery failed - ${errors.join('; ')}`);
+}
+
+/**
  * Main scraping function - tries ALL methods to get version
- * Order: Library -> Device Simulation -> Desktop -> APKMirror -> APKCombo -> Uptodown -> Multi-Country
+ * Order: Library -> Device Simulation -> Desktop -> APKMirror -> APKCombo -> Uptodown -> Multi-Country -> AppGallery
  * Now includes debug_steps to track which methods succeeded/failed
  */
-async function scrapeApp(packageName) {
+async function scrapeApp(packageName, source = 'google-play') {
+  // === HUAWEI APPGALLERY SOURCE ===
+  if (source === 'huawei-appgallery') {
+    const debug_steps = {};
+    console.log(`\n========== Starting AppGallery scrape for ${packageName} ==========`);
+    try {
+      const result = await scrapeWithAppGallery(packageName);
+      debug_steps.appgallery = `Success: ${result.version}`;
+      console.log(`[AppGallery] Final result for ${packageName}: version=${result.version}\n`);
+      return { ...result, debug_steps };
+    } catch (error) {
+      debug_steps.appgallery = `Failed: ${error.message}`;
+      console.log(`[AppGallery] Failed for ${packageName}: ${error.message}\n`);
+      return {
+        packageName,
+        appName: '',
+        publisherName: '',
+        category: '',
+        version: '',
+        source: 'huawei-appgallery',
+        error: error.message,
+        debug_steps,
+      };
+    }
+  }
+
   let finalResult = null;
   let lastError = null;
   const debug_steps = {};
