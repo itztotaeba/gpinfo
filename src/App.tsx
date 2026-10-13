@@ -4,9 +4,37 @@ import { ManualInput } from './components/ManualInput';
 import { ResultsTable } from './components/ResultsTable';
 import { ProgressBar } from './components/ProgressBar';
 import { ExportButton } from './components/ExportButton';
+import {
+  AndroidRobotLogo,
+  AlertIcon,
+  BugIcon,
+  ChartIcon,
+  DownloadIcon,
+  FlaskIcon,
+  GearIcon,
+  HuaweiIcon,
+  InfoIcon,
+  PackageIcon,
+  PencilIcon,
+  PlayIcon,
+  RefreshIcon,
+  SearchIcon,
+  ShuffleIcon,
+  UploadIcon,
+} from './components/icons';
 import type { AppInfo } from './types';
 
 export type ScrapeSource = 'both' | 'google-play' | 'huawei-appgallery';
+
+const SOURCE_OPTIONS: ReadonlyArray<{
+  value: ScrapeSource;
+  label: string;
+  icon: React.ReactNode;
+}> = [
+  { value: 'both', label: 'Play Store + AppGallery', icon: <ShuffleIcon className="w-3.5 h-3.5" /> },
+  { value: 'google-play', label: 'Google Play Store', icon: <PlayIcon className="w-3 h-3" /> },
+  { value: 'huawei-appgallery', label: 'Huawei AppGallery', icon: <HuaweiIcon className="w-3.5 h-3.5" /> },
+];
 
 export default function App() {
   const [packageNames, setPackageNames] = useState<string[]>([]);
@@ -77,10 +105,10 @@ export default function App() {
     for (let i = 0; i < packages.length; i++) {
       const packageName = packages[i];
       setCurrentProcessing(packageName);
-      
+
       const result = await scrapeSinglePackage(packageName);
       allResults.push(result);
-      
+
       setProgress({ current: i + 1, total: packages.length });
       setResults([...allResults]);
 
@@ -98,7 +126,7 @@ export default function App() {
     const failedPackages = results
       .filter(r => r.error)
       .map(r => r.packageName);
-    
+
     if (failedPackages.length > 0) {
       // Remove failed results
       const successResults = results.filter(r => !r.error);
@@ -137,7 +165,7 @@ export default function App() {
     const remaining = total - current;
     const avgTimePerPackage = 8; // seconds
     const totalSeconds = remaining * avgTimePerPackage;
-    
+
     if (totalSeconds < 60) {
       return `~${totalSeconds} detik`;
     } else if (totalSeconds < 3600) {
@@ -151,18 +179,28 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+    <div className="min-h-screen">
+      <div className="bg-veil" />
+
       {/* Header */}
-      <header className="border-b border-white/10 backdrop-blur-sm bg-white/5">
-        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-green-400 to-blue-500 rounded-xl flex items-center justify-center text-xl shadow-lg">
-              📱
+      <header className="sticky top-4 z-20 px-4 sm:px-6 lg:px-8 pt-4">
+        <div className="max-w-7xl mx-auto">
+          <div className="glass glass-sheen px-5 py-3.5 flex items-center gap-3.5 rounded-[24px]">
+            <div className="logo-mark shrink-0">
+              <AndroidRobotLogo className="w-7 h-7" />
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-white">Play Store Scraper</h1>
-              <p className="text-sm text-gray-400">Batch lookup publisher & category dari package name</p>
+            <div className="min-w-0">
+              <h1 className="text-lg font-bold tracking-tight text-[var(--ink)] truncate">
+                Android App Information
+              </h1>
+              <p className="text-xs text-[var(--ink-muted)] truncate">
+                Batch lookup publisher, category &amp; versi dari package name — Google Play Store &amp; Huawei AppGallery
+              </p>
             </div>
+            <span className="chip ml-auto hidden sm:inline-flex shrink-0">
+              <InfoIcon className="w-3.5 h-3.5" />
+              Liquid Glass
+            </span>
           </div>
         </div>
       </header>
@@ -170,8 +208,9 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
         {/* Error Message */}
         {errorMsg && (
-          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
-            <p className="text-red-300 text-sm">⚠️ {errorMsg}</p>
+          <div className="mb-6 glass-soft p-4 border-l-4 border-l-red-400 flex items-start gap-3">
+            <AlertIcon className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+            <p className="text-sm text-red-600">{errorMsg}</p>
           </div>
         )}
 
@@ -179,59 +218,48 @@ export default function App() {
         {packageNames.length === 0 && !isProcessing && (
           <div className="mb-8">
             {/* Source Selector */}
-            <div className="flex flex-wrap items-center gap-2 mb-6">
-              <span className="text-sm text-gray-400 font-medium mr-1">Sumber data:</span>
-              {([
-                { value: 'both', label: '🔀 Play Store + AppGallery' },
-                { value: 'google-play', label: '▶️ Google Play Store' },
-                { value: 'huawei-appgallery', label: '📱 Huawei AppGallery' },
-              ] as const).map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setSource(opt.value)}
-                  className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all ${
-                    source === opt.value
-                      ? 'bg-blue-500/30 text-blue-200 border border-blue-400/50 shadow-lg'
-                      : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+            <div className="flex flex-wrap items-center gap-3 mb-6">
+              <span className="text-sm font-semibold text-[var(--ink-muted)]">Sumber data:</span>
+              <div className="segmented">
+                {SOURCE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setSource(opt.value)}
+                    className={`segment ${source === opt.value ? 'active' : ''}`}
+                  >
+                    {opt.icon}
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Tabs */}
-            <div className="flex flex-wrap gap-2 mb-6">
-              <button
-                onClick={() => setActiveTab('upload')}
-                className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
-                  activeTab === 'upload'
-                    ? 'bg-white/20 text-white shadow-lg'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                📁 Import Excel (.xlsx)
-              </button>
-              <button
-                onClick={() => setActiveTab('manual')}
-                className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
-                  activeTab === 'manual'
-                    ? 'bg-white/20 text-white shadow-lg'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                ✏️ Manual Input
-              </button>
-              <button
-                onClick={loadSampleData}
-                className="px-4 py-2 rounded-lg font-medium text-sm text-gray-400 hover:text-white hover:bg-white/5 transition-all ml-auto"
-              >
-                🧪 Load Sample Data
+            <div className="flex flex-wrap items-center gap-3 mb-6">
+              <div className="segmented">
+                <button
+                  onClick={() => setActiveTab('upload')}
+                  className={`segment ${activeTab === 'upload' ? 'active' : ''}`}
+                >
+                  <UploadIcon className="w-3.5 h-3.5" />
+                  Import Excel (.xlsx)
+                </button>
+                <button
+                  onClick={() => setActiveTab('manual')}
+                  className={`segment ${activeTab === 'manual' ? 'active' : ''}`}
+                >
+                  <PencilIcon className="w-3.5 h-3.5" />
+                  Manual Input
+                </button>
+              </div>
+              <button onClick={loadSampleData} className="btn btn-ghost !text-xs ml-auto">
+                <FlaskIcon className="w-3.5 h-3.5" />
+                Load Sample Data
               </button>
             </div>
 
             {/* Tab Content */}
-            <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
+            <div className="glass p-6">
               {activeTab === 'upload' ? (
                 <FileUpload onPackagesLoaded={handlePackagesLoaded} />
               ) : (
@@ -244,22 +272,23 @@ export default function App() {
         {/* Package List & Actions */}
         {packageNames.length > 0 && (
           <div className="mb-8">
-            <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
+            <div className="glass p-6">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex-1 min-w-0">
-                  <h2 className="text-lg font-semibold text-white">
-                    📦 {packageNames.length} Package Names Loaded
+                  <h2 className="text-base font-bold text-[var(--ink)] flex items-center gap-2">
+                    <PackageIcon className="w-5 h-5 text-emerald-600" />
+                    {packageNames.length} Package Names Loaded
                   </h2>
-                  <div className="mt-2 max-h-32 overflow-y-auto">
-                    <div className="flex flex-wrap gap-2">
+                  <div className="mt-3 max-h-32 overflow-y-auto pr-1">
+                    <div className="flex flex-wrap gap-1.5">
                       {packageNames.slice(0, 50).map((pkg, idx) => (
-                        <span key={idx} className="px-2 py-1 bg-white/10 rounded text-xs text-gray-300 font-mono">
+                        <span key={idx} className="chip !font-mono !text-[11px]">
                           {pkg}
                         </span>
                       ))}
                       {packageNames.length > 50 && (
-                        <span className="px-2 py-1 bg-blue-500/20 rounded text-xs text-blue-300 font-medium">
-                          +{packageNames.length - 50} more
+                        <span className="chip chip-ok !text-[11px]">
+                          +{packageNames.length - 50} lainnya
                         </span>
                       )}
                     </div>
@@ -267,19 +296,14 @@ export default function App() {
                 </div>
                 <div className="flex gap-3 shrink-0">
                   {!isProcessing && results.length === 0 && (
-                    <button
-                      onClick={() => handleScrape()}
-                      className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-semibold rounded-xl shadow-lg shadow-green-500/25 transition-all hover:scale-105 active:scale-95"
-                    >
-                      🔍 Start Scraping
+                    <button onClick={() => handleScrape()} className="btn btn-success">
+                      <SearchIcon className="w-4 h-4" />
+                      Start Scraping
                     </button>
                   )}
-                  <button
-                    onClick={handleReset}
-                    disabled={isProcessing}
-                    className="px-4 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-all disabled:opacity-50"
-                  >
-                    🔄 Reset
+                  <button onClick={handleReset} disabled={isProcessing} className="btn">
+                    <RefreshIcon className="w-4 h-4" />
+                    Reset
                   </button>
                 </div>
               </div>
@@ -291,31 +315,31 @@ export default function App() {
         {isProcessing && (
           <div className="mb-8 space-y-4">
             <ProgressBar current={progress.current} total={progress.total} />
-            
+
             {/* Current Processing Info */}
-            <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
-                  <span className="text-sm text-gray-300">Processing:</span>
-                  <span className="text-sm font-mono text-blue-300">{currentProcessing}</span>
+            <div className="glass p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse shrink-0" />
+                  <span className="text-sm text-[var(--ink-muted)] shrink-0">Processing:</span>
+                  <span className="text-sm font-mono text-emerald-700 truncate">{currentProcessing}</span>
                 </div>
-                <span className="text-sm text-gray-400">
+                <span className="text-sm text-[var(--ink-muted)] tabular-nums shrink-0 ml-3">
                   ETA: {getEstimatedTime(progress.total, progress.current)}
                 </span>
               </div>
-              <div className="grid grid-cols-3 gap-4 mt-3">
-                <div className="bg-white/5 rounded-lg p-3">
-                  <div className="text-xs text-gray-400 mb-1">Total</div>
-                  <div className="text-lg font-bold text-white">{progress.total}</div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="glass-soft p-3.5 text-center">
+                  <div className="text-[11px] uppercase tracking-wider text-[var(--ink-faint)] font-semibold">Total</div>
+                  <div className="text-xl font-bold tabular-nums text-[var(--ink)]">{progress.total}</div>
                 </div>
-                <div className="bg-white/5 rounded-lg p-3">
-                  <div className="text-xs text-gray-400 mb-1">Success</div>
-                  <div className="text-lg font-bold text-green-400">{successCount}</div>
+                <div className="glass-soft p-3.5 text-center">
+                  <div className="text-[11px] uppercase tracking-wider text-[var(--ink-faint)] font-semibold">Success</div>
+                  <div className="text-xl font-bold tabular-nums text-emerald-600">{successCount}</div>
                 </div>
-                <div className="bg-white/5 rounded-lg p-3">
-                  <div className="text-xs text-gray-400 mb-1">Failed</div>
-                  <div className="text-lg font-bold text-red-400">{failedCount}</div>
+                <div className="glass-soft p-3.5 text-center">
+                  <div className="text-[11px] uppercase tracking-wider text-[var(--ink-faint)] font-semibold">Failed</div>
+                  <div className="text-xl font-bold tabular-nums text-red-500">{failedCount}</div>
                 </div>
               </div>
             </div>
@@ -327,23 +351,22 @@ export default function App() {
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-white">
-                  📊 Results ({results.length}/{packageNames.length})
+                <h2 className="text-base font-bold text-[var(--ink)] flex items-center gap-2">
+                  <ChartIcon className="w-5 h-5 text-slate-500" />
+                  Results ({results.length}/{packageNames.length})
                 </h2>
                 {failedCount > 0 && !isProcessing && (
-                  <p className="text-sm text-yellow-400 mt-1">
-                    ⚠️ {failedCount} app failed to scrape
+                  <p className="text-sm text-amber-600 mt-1 flex items-center gap-1.5">
+                    <AlertIcon className="w-4 h-4" />
+                    {failedCount} app gagal di-scrape
                   </p>
                 )}
               </div>
               <div className="flex gap-3">
                 {failedCount > 0 && !isProcessing && (
-                  <button
-                    onClick={handleRetryFailed}
-                    className="px-4 py-2 bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-400 hover:to-orange-500 text-white font-medium rounded-lg shadow-lg transition-all hover:scale-105 flex items-center gap-2"
-                  >
-                    <span>🔄</span>
-                    <span>Retry Failed ({failedCount})</span>
+                  <button onClick={handleRetryFailed} className="btn btn-warning">
+                    <RefreshIcon className="w-4 h-4" />
+                    Retry Failed ({failedCount})
                   </button>
                 )}
                 {!isProcessing && (
@@ -359,114 +382,69 @@ export default function App() {
         {packageNames.length === 0 && !isProcessing && results.length === 0 && (
           <div className="mt-8">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-              <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5">
-                <div className="text-2xl mb-2">📤</div>
-                <h3 className="font-semibold text-white mb-1">1. Upload File</h3>
-                <p className="text-sm text-gray-400">Import file .xlsx atau input manual tanpa batasan jumlah package</p>
-              </div>
-              <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5">
-                <div className="text-2xl mb-2">⚙️</div>
-                <h3 className="font-semibold text-white mb-1">2. Process</h3>
-                <p className="text-sm text-gray-400">Sistem akan process satu per satu dengan retry mechanism</p>
-              </div>
-              <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5">
-                <div className="text-2xl mb-2">📥</div>
-                <h3 className="font-semibold text-white mb-1">3. Export</h3>
-                <p className="text-sm text-gray-400">Download hasil dalam format Excel (.xlsx) dengan data lengkap</p>
-              </div>
+              {[
+                {
+                  icon: <UploadIcon className="w-5 h-5" />,
+                  title: '1. Upload File',
+                  desc: 'Import file .xlsx atau input manual tanpa batasan jumlah package.',
+                },
+                {
+                  icon: <GearIcon className="w-5 h-5" />,
+                  title: '2. Process',
+                  desc: 'Sistem memproses satu per satu dengan retry mechanism otomatis.',
+                },
+                {
+                  icon: <DownloadIcon className="w-5 h-5" />,
+                  title: '3. Export',
+                  desc: 'Download hasil dalam format Excel (.xlsx) dengan data lengkap.',
+                },
+              ].map((step) => (
+                <div key={step.title} className="glass glass-sheen p-5">
+                  <div className="logo-mark !w-10 !h-10 !rounded-[14px] mb-3">{step.icon}</div>
+                  <h3 className="font-bold text-[var(--ink)] mb-1">{step.title}</h3>
+                  <p className="text-sm text-[var(--ink-muted)]">{step.desc}</p>
+                </div>
+              ))}
             </div>
 
             {/* Additional Info */}
-            <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-              <h3 className="font-semibold text-white mb-3">ℹ️ Informasi Penting</h3>
-              <ul className="text-sm text-gray-400 space-y-2">
-                <li className="flex items-start gap-2">
-                  <span className="text-green-400 mt-0.5">•</span>
-                  <span>Format package name: <code className="px-1 py-0.5 bg-white/10 rounded text-xs font-mono text-blue-300">com.example.app</code></span>
+            <div className="glass p-6">
+              <h3 className="font-bold text-[var(--ink)] mb-4 flex items-center gap-2">
+                <InfoIcon className="w-5 h-5 text-emerald-600" />
+                Informasi Penting
+              </h3>
+              <ul className="text-sm text-[var(--ink-muted)] space-y-2.5">
+                <li className="flex items-start gap-2.5">
+                  <span className="text-emerald-600 mt-1 shrink-0">•</span>
+                  <span>Format package name: <code className="px-1.5 py-0.5 rounded-lg bg-white/60 border border-slate-200 text-xs font-mono text-slate-700">com.example.app</code></span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-green-400 mt-0.5">•</span>
-                  <span><strong className="text-white">Tidak ada batasan jumlah package</strong> - bisa input 300+ package sekaligus</span>
+                <li className="flex items-start gap-2.5">
+                  <span className="text-emerald-600 mt-1 shrink-0">•</span>
+                  <span><strong className="text-[var(--ink)]">Tidak ada batasan jumlah package</strong> — bisa input 300+ package sekaligus</span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-green-400 mt-0.5">•</span>
-                  <span>Data yang diambil: <strong className="text-white">App Name, Publisher, Category, Version</strong></span>
+                <li className="flex items-start gap-2.5">
+                  <span className="text-emerald-600 mt-1 shrink-0">•</span>
+                  <span>Data yang diambil: <strong className="text-[var(--ink)]">App Name, Publisher, Category, Version</strong> dari Play Store &amp; AppGallery</span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-green-400 mt-0.5">•</span>
+                <li className="flex items-start gap-2.5">
+                  <span className="text-emerald-600 mt-1 shrink-0">•</span>
                   <span>Estimasi waktu: ~8 detik per package (dengan retry mechanism)</span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-green-400 mt-0.5">•</span>
-                  <span>Menggunakan 3 metode scraping dengan retry untuk akurasi maksimal</span>
+                <li className="flex items-start gap-2.5">
+                  <span className="text-emerald-600 mt-1 shrink-0">•</span>
+                  <span>Jika ada app yang gagal, gunakan tombol <strong className="text-[var(--ink)]">Retry Failed</strong> untuk mencoba ulang</span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-green-400 mt-0.5">•</span>
-                  <span>Jika ada app yang gagal, gunakan tombol "Retry Failed" untuk mencoba ulang</span>
+                <li className="flex items-start gap-2.5">
+                  <BugIcon className="w-4 h-4 text-slate-500 mt-0.5 shrink-0" />
+                  <span><strong className="text-[var(--ink)]">Tentang Versi Aplikasi:</strong> sistem mencoba 6 metode berurutan — google-play-scraper library, device simulation (5 perangkat Android), desktop fetch (JSON-LD &amp; HTML), APKMirror, APKPure, dan multi-country (10 negara). Jika semua gagal, tampil <code className="px-1.5 py-0.5 rounded-lg bg-white/60 border border-slate-200 text-xs font-mono text-slate-700">Varies with device</code>.</span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-blue-400 mt-0.5">💡</span>
-                  <span className="text-blue-300"><strong>Tentang Versi Aplikasi:</strong></span>
+                <li className="flex items-start gap-2.5">
+                  <HuaweiIcon className="w-4 h-4 text-orange-600 mt-0.5 shrink-0" />
+                  <span><strong className="text-[var(--ink)]">Huawei AppGallery:</strong> scraping via API edge regional appgallery.huawei.com — mengembalikan versi, URL halaman aplikasi, dan jumlah download bila tersedia.</span>
                 </li>
-                <li className="flex items-start gap-2 pl-6">
-                  <span className="text-gray-500">•</span>
-                  <span>Sistem mencoba <strong className="text-white">6 metode berurutan</strong> untuk mendapatkan versi asli:</span>
-                </li>
-                <li className="flex items-start gap-2 pl-10">
-                  <span className="text-gray-600">1.</span>
-                  <span><strong className="text-white">Library</strong> - google-play-scraper API</span>
-                </li>
-                <li className="flex items-start gap-2 pl-10">
-                  <span className="text-gray-600">2.</span>
-                  <span><strong className="text-white">Device Simulation</strong> - Simulasi 5 Android device (Samsung S23, Pixel 8, Galaxy A54, Xiaomi 13, OnePlus 11)</span>
-                </li>
-                <li className="flex items-start gap-2 pl-10">
-                  <span className="text-gray-600">3.</span>
-                  <span><strong className="text-white">Desktop Fetch</strong> - Parsing JSON-LD & HTML blocks</span>
-                </li>
-                <li className="flex items-start gap-2 pl-10">
-                  <span className="text-gray-600">4.</span>
-                  <span><strong className="text-white">APKMirror</strong> - External APK database dengan versi spesifik</span>
-                </li>
-                <li className="flex items-start gap-2 pl-10">
-                  <span className="text-gray-600">5.</span>
-                  <span><strong className="text-white">APKPure</strong> - Alternative APK source</span>
-                </li>
-                <li className="flex items-start gap-2 pl-10">
-                  <span className="text-gray-600">6.</span>
-                  <span><strong className="text-white">Multi-Country</strong> - Coba 10 country berbeda</span>
-                </li>
-                <li className="flex items-start gap-2 pl-6">
-                  <span className="text-gray-500">•</span>
-                  <span>Setiap device simulation menggunakan <strong className="text-white">User-Agent Android Mobile</strong> + <strong className="text-white">Sec-CH-UA headers</strong></span>
-                </li>
-                <li className="flex items-start gap-2 pl-6">
-                  <span className="text-gray-500">•</span>
-                  <span>Extract versi dari: <strong className="text-white">JSON-LD</strong>, <strong className="text-white">AF_initDataCallback</strong>, <strong className="text-white">HTML blocks</strong>, <strong className="text-white">Meta tags</strong></span>
-                </li>
-                <li className="flex items-start gap-2 pl-6">
-                  <span className="text-gray-500">•</span>
-                  <span>Jika semua metode gagal, akan tampil <code className="px-1 py-0.5 bg-white/10 rounded text-xs font-mono">Varies with device</code></span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-blue-400 mt-0.5">💡</span>
-                  <span className="text-blue-300"><strong>Contoh estimasi waktu:</strong></span>
-                </li>
-                <li className="flex items-start gap-2 pl-6">
-                  <span className="text-gray-500">•</span>
-                  <span>50 packages ≈ 7 menit</span>
-                </li>
-                <li className="flex items-start gap-2 pl-6">
-                  <span className="text-gray-500">•</span>
-                  <span>100 packages ≈ 13 menit</span>
-                </li>
-                <li className="flex items-start gap-2 pl-6">
-                  <span className="text-gray-500">•</span>
-                  <span>300 packages ≈ 40 menit</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-yellow-400 mt-0.5">⚠️</span>
-                  <span className="text-yellow-300">Pastikan koneksi internet stabil dan jangan tutup browser saat proses berjalan</span>
+                <li className="flex items-start gap-2.5">
+                  <span className="text-amber-500 mt-0.5 shrink-0"><AlertIcon className="w-4 h-4" /></span>
+                  <span className="text-amber-700">Pastikan koneksi internet stabil dan jangan tutup browser saat proses berjalan.</span>
                 </li>
               </ul>
             </div>
@@ -475,10 +453,10 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-white/10 mt-12">
-        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
-          <p className="text-center text-sm text-gray-500">
-            Play Store Scraper • Unlimited packages • Multi-method scraping with retry
+      <footer className="max-w-7xl mx-auto px-4 pb-8 sm:px-6 lg:px-8">
+        <div className="glass-soft py-4 px-6">
+          <p className="text-center text-xs text-[var(--ink-faint)]">
+            Android App Information • Unlimited packages • Multi-method scraping with retry • Play Store &amp; Huawei AppGallery
           </p>
         </div>
       </footer>
