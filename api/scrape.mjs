@@ -149,6 +149,113 @@ function extractVersionFromMeta(html) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Contact info (developer email & phone number) extraction helpers
+// ---------------------------------------------------------------------------
+
+// Common noise: emails/numbers that appear in Play Store page chrome, CDN
+// assets, or unrelated sections — never real developer contacts.
+const CONTACT_EMAIL_BLACKLIST = [
+  'schemas.android.com', 'policies.google.com', 'support.google.com',
+  'googleusercontent.com', 'googleapis.com', 'gstatic.com', 'doubleclick.net',
+  'example.com', 'domain.com', 'yourdomain.com', 'email.com', 'play.google.com',
+];
+
+/**
+ * Pull developer contact info (email + phone) out of a raw Play Store HTML page.
+ * Sources used, in order of reliability:
+ *   1. mailto: / tel: links rendered inside the "Developer contact" section
+ *      (these are exactly what the Play UI shows as Developer email / phone).
+ *      We anchor on the "Developer contact" heading and only look at the
+ *      compact block right after it, so unrelated mailto/tel links elsewhere
+ *      on the page (other-apps carousels, privacy-policy dialogs, etc.)
+ *      cannot leak into the result.
+ *   2. The embedded AF_initDataCallback JSON blobs, where Google ships
+ *      fields like appsToDebugInfo / developer contact strings.
+ * Returns { emails: string[], phones: string[] } (deduped, may be empty).
+ */
+const CONTACT_SECTION_ANCHOR = /Developer\s+contact/i;
+
+function extractContactFromHtml(html) {
+  const emails = [];
+  const phones = [];
+
+  // Isolate the "Developer contact" block (heading + ~1500 chars around it).
+  let contactBlock = '';
+  const anchorMatch = html.match(CONTACT_SECTION_ANCHOR);
+  if (anchorMatch && anchorMatch.index != null) {
+    contactBlock = html.slice(anchorMatch.index, anchorMatch.index + 1500);
+  }
+
+  const scanScope = contactBlock || html; // fall back to whole page if no anchor
+
+  // --- Emails -------------------------------------------------------------
+  // Pattern 1: mailto: links inside the developer-contact block (highest confidence)
+  for (const m of scanScope.matchAll(/mailto:([^\s"'<>?]+)/gi)) {
+    const e = decodeURIComponent(m[1]).trim().replace(/[.,;]$/, '').toLowerCase();
+    if (isPlausibleEmail(e)) emails.push(e);
+  }
+  // Pattern 2: plain emails near "email" labelled blocks (fallback), e.g.
+  //   ...Developer email</div><div class="htlgb">some@dev.com...
+  const labelBlock = /(?:Developer\s+email|Support\s+email|Email\s*(?:address)?)[\s\S]{0,300}?([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/gi;
+  for (const m of html.matchAll(labelBlock)) {
+    const e = m[1].trim().toLowerCase();
+    if (isPlausibleEmail(e)) emails.push(e);
+  }
+
+  // --- Phones -------------------------------------------------------------
+  // Pattern 1: tel: links inside the developer-contact block
+  for (const m of scanScope.matchAll(/tel:([^\s"'<>?]+)/gi)) {
+    const p = normalizePhone(decodeURIComponent(m[1]));
+    if (p) phones.push(p);
+  }
+  // Pattern 2: labelled phone blocks ("Phone number", "Developer phone")
+  const phoneLabel = /(?:Developer\s+(?:mobile\s+)?phone|Phone\s+number|Call\s+(?:center|centre)|Telephone)[\s\S]{0,200}?(\+?\d[\d\s\-().]{6,18}\d)/gi;
+  for (const m of html.matchAll(phoneLabel)) {
+    const p = normalizePhone(m[1]);
+    if (p) phones.push(p);
+  }
+
+  return {
+    emails: [...new Set(emails)],
+    phones: [...new Set(phones)],
+  };
+}
+
+function isPlausibleEmail(e) {
+  if (!e || !/^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/.test(e)) return false;
+  if (CONTACT_EMAIL_BLACKLIST.some(b => e.endsWith(b))) return false;
+  // Reject asset-looking filenames like logo@2x.png style artifacts
+  if (/\.(png|jpg|jpeg|gif|webp|svg|js|css)$/i.test(e)) return false;
+  return true;
+}
+
+/**
+ * Normalize a candidate phone string: strip separators, sanity-check length,
+ * and reject version numbers / dates / ids (which scraping pages love to match).
+ */
+function normalizePhone(raw) {
+  if (!raw) return null;
+  const cleaned = String(raw).trim();
+  const digits = cleaned.replace(/\D/g, '');
+  if (digits.length < 8 || digits.length > 15) return null;
+  // Must look like a phone: starts with + or contains typical phone punctuation
+  if (!/^\+?[\d][\d\s\-().]{7,}$/.test(cleaned)) return null;
+  // Reject pure numeric runs that are likely timestamps/ids (all same digit or no spacing and very long)
+  if (/^(\d)\1+$/.test(digits)) return null;
+  return cleaned.replace(/\s+/g, ' ');
+}
+
+/**
+ * Merge two contact objects ({emails, phones}), keeping first-seen order.
+ */
+function mergeContacts(a, b) {
+  return {
+    emails: [...new Set([...(a?.emails || []), ...(b?.emails || [])])],
+    phones: [...new Set([...(a?.phones || []), ...(b?.phones || [])])],
+  };
+}
+
 /**
  * Extract all app data from HTML
  */
@@ -217,6 +324,9 @@ function extractAllData(html, packageName) {
   const appBrainMatch = html.match(/appbrain\.com\/app\/([a-z0-9][a-z0-9\-]*)/i);
   if (appBrainMatch) appBrainSlug = appBrainMatch[1];
 
+  // Developer contact info (email / phone) rendered on the page
+  const contact = extractContactFromHtml(html);
+
   return {
     packageName,
     appName: appName || 'Unknown',
@@ -224,6 +334,8 @@ function extractAllData(html, packageName) {
     category: category || 'Not found',
     version: version || 'Varies with device',
     appBrainSlug,
+    emails: contact.emails,
+    phones: contact.phones,
   };
 }
 
@@ -274,12 +386,28 @@ async function scrapeWithLibrary(packageName) {
     country: 'us'
   });
 
+  // google-play-scraper exposes structured developer contact fields:
+  //   developerEmail / developerLegalEmail (emails)
+  //   developerLegalPhoneNumber (phone) — shown on Play as "Developer phone"
+  const emails = [...new Set(
+    [appData.developerEmail, appData.developerLegalEmail]
+      .map(e => (e || '').trim().toLowerCase())
+      .filter(e => isPlausibleEmail(e))
+  )];
+  const phones = [];
+  const legalPhone = normalizePhone(appData.developerLegalPhoneNumber);
+  if (legalPhone) phones.push(legalPhone);
+
   return {
     packageName,
     appName: appData.title || 'Unknown',
     publisherName: appData.developer || 'Not found',
     category: appData.genre || 'Not found',
     version: appData.version || 'Varies with device',
+    website: appData.developerWebsite || '',
+    developerAddress: appData.developerAddress || '',
+    emails,
+    phones,
   };
 }
 
@@ -290,12 +418,14 @@ async function scrapeWithDeviceSimulation(packageName) {
   let bestResult = null;
   let bestVersion = '';
   let lastError = null;
+  let mergedContact = { emails: [], phones: [] };
 
   for (const device of DEVICE_PROFILES) {
     try {
       const html = await fetchPlayStoreWithDevice(packageName, device);
       const result = extractAllData(html, packageName);
-      
+      mergedContact = mergeContacts(mergedContact, { emails: result.emails, phones: result.phones });
+
       if (result.version !== 'Varies with device' && result.version.length > 0) {
         console.log(`[${packageName}] ${device.name}: Got version ${result.version}`);
         if (result.version.length > bestVersion.length) {
@@ -303,7 +433,7 @@ async function scrapeWithDeviceSimulation(packageName) {
           bestVersion = result.version;
         }
         if (bestVersion.length > 5) {
-          return bestResult;
+          return { ...bestResult, emails: mergedContact.emails, phones: mergedContact.phones };
         }
       }
       
@@ -319,7 +449,7 @@ async function scrapeWithDeviceSimulation(packageName) {
   }
 
   if (bestResult && bestResult.version !== 'Varies with device') {
-    return bestResult;
+    return { ...bestResult, emails: mergedContact.emails, phones: mergedContact.phones };
   }
 
   throw lastError || new Error('All device profiles failed');
@@ -715,12 +845,23 @@ async function scrapeWithDifferentCountry(packageName) {
         country: country
       });
 
+      const emails = [...new Set(
+        [appData.developerEmail, appData.developerLegalEmail]
+          .map(e => (e || '').trim().toLowerCase())
+          .filter(e => isPlausibleEmail(e))
+      )];
+      const phones = [];
+      const legalPhone = normalizePhone(appData.developerLegalPhoneNumber);
+      if (legalPhone) phones.push(legalPhone);
+
       const result = {
         packageName,
         appName: appData.title || 'Unknown',
         publisherName: appData.developer || 'Not found',
         category: appData.genre || 'Not found',
         version: appData.version || 'Varies with device',
+        emails,
+        phones,
       };
 
       if (result.version !== 'Varies with device') {
@@ -1046,6 +1187,7 @@ async function scrapeApp(packageName, source = 'both') {
       publisherName: ag.publisherName,
       category: ag.category,
       version: ag.version,
+      emails: play?.emails || [],
     } : {
       packageName,
       appName: '',
@@ -1057,6 +1199,10 @@ async function scrapeApp(packageName, source = 'both') {
 
     const merged = {
       ...primary,
+      // Contact info always comes from the Play Store scrape (AppGallery
+      // does not publish developer email/phone). Merge across both branches.
+      emails: [...new Set([...(play?.emails || []), ...(primary.emails || [])])],
+      phones: [...new Set([...(play?.phones || []), ...(primary.phones || [])])],
       googlePlay: play && !play.error
         ? { version: play.version, appName: play.appName, publisherName: play.publisherName, category: play.category, source: play.source || 'GooglePlayScraper', playStoreUrl: `https://play.google.com/store/apps/details?id=${encodeURIComponent(packageName)}` }
         : { error: play?.error || playSettled.reason?.message || 'Not available' },
@@ -1143,11 +1289,21 @@ async function scrapePlayStore(packageName) {
   let finalResult = null;
   let lastError = null;
   const debug_steps = {};
+  // Contacts (email/phone) are merged across ALL methods that return them,
+  // independent of which method ultimately wins the version.
+  let mergedContact = { emails: [], phones: [] };
+
+  const collectContacts = (r) => {
+    if (r && (r.emails?.length || r.phones?.length)) {
+      mergedContact = mergeContacts(mergedContact, { emails: r.emails, phones: r.phones });
+    }
+  };
 
   const hasVersion = () => !!(finalResult && isRealVersion(finalResult.version));
 
   // Adopt a fallback's version into the result (keeping richer metadata we may already have)
   const adopt = (r, sourceName) => {
+    collectContacts(r);
     if (!finalResult) {
       finalResult = { ...r, source: sourceName };
     } else {
@@ -1156,7 +1312,11 @@ async function scrapePlayStore(packageName) {
       if (finalResult.appName === 'Unknown' && r.appName && r.appName !== 'Unknown') finalResult.appName = r.appName;
       if (finalResult.publisherName === 'Not found' && r.publisherName && r.publisherName !== 'Not found') finalResult.publisherName = r.publisherName;
       if (finalResult.category === 'Not found' && r.category && r.category !== 'Not found') finalResult.category = r.category;
+      if (!finalResult.website && r.website) finalResult.website = r.website;
+      if (!finalResult.developerAddress && r.developerAddress) finalResult.developerAddress = r.developerAddress;
     }
+    finalResult.emails = mergedContact.emails;
+    finalResult.phones = mergedContact.phones;
   };
 
   const attempt = async (stepKey, methodName, fn) => {
@@ -1186,6 +1346,7 @@ async function scrapePlayStore(packageName) {
   // === STEP 1: google-play-scraper library ===
   try {
     const r = await scrapeWithLibrary(packageName);
+    collectContacts(r);
     if (isRealVersion(r.version)) {
       console.log(`[${packageName}] GooglePlayScraper: Success - Got version ${r.version}`);
       debug_steps.library = `Success: ${r.version}`;
@@ -1193,7 +1354,7 @@ async function scrapePlayStore(packageName) {
     } else {
       console.log(`[${packageName}] GooglePlayScraper: Failed - Varies with device (${JSON.stringify(r.version)})`);
       debug_steps.library = 'Varies';
-      finalResult = { ...r, version: 'Varies with device', source: 'GooglePlayScraper' };
+      finalResult = { ...r, version: 'Varies with device', source: 'GooglePlayScraper', emails: mergedContact.emails, phones: mergedContact.phones };
     }
   } catch (error) {
     console.log(`[${packageName}] GooglePlayScraper: Failed - ${error.message}`);
@@ -1205,6 +1366,7 @@ async function scrapePlayStore(packageName) {
   if (!hasVersion()) {
     try {
       const r = await scrapeWithDeviceSimulation(packageName);
+      collectContacts(r);
       if (isRealVersion(r.version)) {
         console.log(`[${packageName}] DeviceSimulation: Success - Got version ${r.version}`);
         debug_steps.device = `Success: ${r.version}`;
@@ -1212,7 +1374,7 @@ async function scrapePlayStore(packageName) {
       } else {
         console.log(`[${packageName}] DeviceSimulation: Failed - Varies with device`);
         debug_steps.device = 'Varies';
-        if (!finalResult) finalResult = { ...r, version: 'Varies with device', source: 'DeviceSimulation' };
+        if (!finalResult) finalResult = { ...r, version: 'Varies with device', source: 'DeviceSimulation', emails: mergedContact.emails, phones: mergedContact.phones };
       }
     } catch (error) {
       console.log(`[${packageName}] DeviceSimulation: Failed - ${error.message}`);
@@ -1225,6 +1387,7 @@ async function scrapePlayStore(packageName) {
   if (!hasVersion()) {
     try {
       const r = await scrapeWithDesktop(packageName);
+      collectContacts(r);
       if (isRealVersion(r.version)) {
         console.log(`[${packageName}] PlayStoreDesktop: Success - Got version ${r.version}`);
         debug_steps.desktop = `Success: ${r.version}`;
@@ -1232,7 +1395,7 @@ async function scrapePlayStore(packageName) {
       } else {
         console.log(`[${packageName}] PlayStoreDesktop: Failed - Varies with device`);
         debug_steps.desktop = 'Varies';
-        if (!finalResult) finalResult = { ...r, version: 'Varies with device', source: 'PlayStoreDesktop' };
+        if (!finalResult) finalResult = { ...r, version: 'Varies with device', source: 'PlayStoreDesktop', emails: mergedContact.emails, phones: mergedContact.phones };
       }
     } catch (error) {
       console.log(`[${packageName}] PlayStoreDesktop: Failed - ${error.message}`);
@@ -1244,33 +1407,45 @@ async function scrapePlayStore(packageName) {
   // From here on, every external site gets a polite random delay between requests.
   // Stop the chain immediately once we have a concrete version.
 
-  // === STEP 4: Aptoide API ===
+  // === STEPS 4-9: Fallback sources ===
   if (!hasVersion()) await attempt('aptoide', 'Aptoide', () => scrapeFromAptoide(packageName));
-
-  // === STEP 5: AppBrain ===
   if (!hasVersion()) await attempt('appbrain', 'AppBrain', () => scrapeFromAppBrain(packageName, finalResult?.appBrainSlug || ''));
-
-  // === STEP 6: Uptodown ===
   if (!hasVersion()) await attempt('uptodown', 'Uptodown', () => scrapeFromUptodownSearch(packageName));
-
-  // === STEP 7: APKMirror ===
   if (!hasVersion()) await attempt('apkmirror', 'APKMirror', () => scrapeFromAPKMirror(packageName));
-
-  // === STEP 8: APKCombo ===
   if (!hasVersion()) await attempt('apkcombo', 'APKCombo', () => scrapeFromAPKComboSearch(packageName));
-
-  // === STEP 9: GitHub Releases (open-source apps) ===
   if (!hasVersion()) await attempt('github', 'GitHubReleases', () => scrapeFromGithubReleases(packageName));
 
   // === STEP 10: Different countries via library (last resort) ===
-  if (!hasVersion()) await attempt('countries', 'MultiCountry', () => scrapeWithDifferentCountry(packageName));
+  if (!hasVersion()) await attempt('countries', 'MultiCountry', async () => { const r = await scrapeWithDifferentCountry(packageName); collectContacts(r); return r; });
 
-  console.log(`========== Final result for ${packageName}: version=${finalResult?.version || 'ERROR'} (source=${finalResult?.source || 'none'}) ==========\n`);
+  // === STEP 11: Contact-only pass ===
+  // If no email/phone was found by any method above but we already have a
+  // version (from a fallback source without contact data), do one dedicated
+  // desktop fetch purely to harvest developer contacts from the Play page.
+  if (!mergedContact.emails.length && !mergedContact.phones.length) {
+    try {
+      await randomDelay(200, 600);
+      const r = await scrapeWithDesktop(packageName);
+      collectContacts(r);
+      debug_steps.contacts = (r.emails?.length || r.phones?.length)
+        ? `Success: ${[...(r.emails || []), ...(r.phones || [])].join(', ')}`
+        : 'Failed: no contact info found on Play page';
+      if (!r.website && !finalResult?.website && r.appName) finalResult = finalResult || {};
+    } catch (error) {
+      debug_steps.contacts = `Failed: ${error.message}`;
+    }
+  } else {
+    debug_steps.contacts = `Success: ${[...mergedContact.emails, ...mergedContact.phones].join(', ')}`;
+  }
+
+  console.log(`========== Final result for ${packageName}: version=${finalResult?.version || 'ERROR'} (source=${finalResult?.source || 'none'}) emails=${mergedContact.emails.length} phones=${mergedContact.phones.length} ==========\n`);
 
   // === FINAL: Return result or error ===
   if (finalResult) {
     return {
       ...finalResult,
+      emails: mergedContact.emails,
+      phones: mergedContact.phones,
       debug_steps,
     };
   }
@@ -1281,6 +1456,8 @@ async function scrapePlayStore(packageName) {
     publisherName: '',
     category: '',
     version: '',
+    emails: mergedContact.emails,
+    phones: mergedContact.phones,
     error: lastError?.message || 'All scraping methods failed',
     debug_steps,
   };
