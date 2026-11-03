@@ -22,10 +22,8 @@ export function ExportButton({ results }: ExportButtonProps) {
       'App ID (AppGallery)': result.huaweiAppGallery?.appGalleryAppId || '',
       'Last Update (AppGallery)': result.huaweiAppGallery?.lastUpdate
         || (result.source === 'huawei-appgallery' ? (result.huaweiAppGallery as any)?.lastUpdate || '' : ''),
-      'Contact (Email / Phone)': [
-        ...(result.emails || []),
-        ...(result.phones || []),
-      ].join(', '),
+      'Email': (result.emails || []).join(', '),
+      'Phone': (result.phones || []).join(', '),
       'AppGallery URL': result.huaweiAppGallery?.appGalleryUrl || '',
       'Downloads (AppGallery)': result.huaweiAppGallery?.downloadCount ?? '',
       'Status': result.error ? `Error: ${result.error}` : 'Success',
@@ -47,7 +45,8 @@ export function ExportButton({ results }: ExportButtonProps) {
       { wch: 20 },  // Version AG
       { wch: 45 },  // AG URL
       { wch: 20 },  // Downloads
-      { wch: 45 },  // Contact (Email / Phone)
+      { wch: 45 },  // Email
+      { wch: 25 },  // Phone
       { wch: 15 },  // Status
     ];
 

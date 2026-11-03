@@ -37,7 +37,8 @@ export function ResultsTable({ results }: ResultsTableProps) {
               <th>Play Store</th>
               <th>AppGallery</th>
               <th>Last Update</th>
-              <th>Contact (Email / Phone)</th>
+              <th>Email</th>
+              <th>Phone</th>
               <th>App ID</th>
               <th>Status</th>
               <th>Debug</th>
@@ -145,16 +146,15 @@ export function ResultsTable({ results }: ResultsTableProps) {
                       )}
                     </td>
 
-                    {/* Contact info — developer email & phone (merged, from Google Play) */}
+                    {/* Email — developer email (from Google Play) */}
                     <td>
                       {(() => {
                         const emails = result.emails || [];
-                        const phones = result.phones || [];
-                        if (!emails.length && !phones.length) {
+                        if (!emails.length) {
                           return <span className="chip chip-neutral">-</span>;
                         }
                         return (
-                          <div className="flex flex-col gap-1 items-start max-w-[260px]">
+                          <div className="flex flex-col gap-1 items-start max-w-[240px]">
                             {emails.map((e) => (
                               <a
                                 key={`email-${e}`}
@@ -166,6 +166,20 @@ export function ResultsTable({ results }: ResultsTableProps) {
                                 {e}
                               </a>
                             ))}
+                          </div>
+                        );
+                      })()}
+                    </td>
+
+                    {/* Phone — developer phone number (from Google Play) */}
+                    <td>
+                      {(() => {
+                        const phones = result.phones || [];
+                        if (!phones.length) {
+                          return <span className="chip chip-neutral">-</span>;
+                        }
+                        return (
+                          <div className="flex flex-col gap-1 items-start max-w-[200px]">
                             {phones.map((p) => (
                               <a
                                 key={`phone-${p}`}
@@ -227,7 +241,7 @@ export function ResultsTable({ results }: ResultsTableProps) {
                   </tr>
                   {expandedRow === idx && result.debug_steps && (
                     <tr className="bg-slate-100/70">
-                      <td colSpan={12} className="px-4 py-3">
+                      <td colSpan={13} className="px-4 py-3">
                         <div className="text-xs font-mono space-y-1.5">
                           <div className="font-semibold text-[var(--ink-muted)] mb-2 uppercase tracking-wider text-[10px]">
                             Debug Steps
