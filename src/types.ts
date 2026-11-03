@@ -20,6 +20,10 @@ export interface AppInfo {
   version: string;
   source?: string;
   error?: string;
+  /** Developer contact emails scraped from Google Play */
+  emails?: string[];
+  /** Developer phone numbers scraped from Google Play */
+  phones?: string[];
   googlePlay?: SourceInfo;
   huaweiAppGallery?: SourceInfo;
   debug_steps?: Record<string, string>;

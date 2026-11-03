@@ -200,3 +200,16 @@ export const CalendarIcon = ({ className }: IconProps) => (
     <path d="M3 10h18M8 3v4M16 3v4" />
   </Svg>
 );
+
+export const MailIcon = ({ className }: IconProps) => (
+  <Svg className={className}>
+    <rect x="2" y="4" width="20" height="16" rx="2" />
+    <path d="m22 6-10 7L2 6" />
+  </Svg>
+);
+
+export const PhoneIcon = ({ className }: IconProps) => (
+  <Svg className={className}>
+    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.08 4.18 2 2 0 0 1 4.07 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" />
+  </Svg>
+);

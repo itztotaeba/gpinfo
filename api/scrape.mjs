@@ -164,19 +164,34 @@ const CONTACT_EMAIL_BLACKLIST = [
 /**
  * Pull developer contact info (email + phone) out of a raw Play Store HTML page.
  * Sources used, in order of reliability:
- *   1. mailto: / tel: links rendered inside the "Additional info" section
+ *   1. mailto: / tel: links rendered inside the "Developer contact" section
  *      (these are exactly what the Play UI shows as Developer email / phone).
+ *      We anchor on the "Developer contact" heading and only look at the
+ *      compact block right after it, so unrelated mailto/tel links elsewhere
+ *      on the page (other-apps carousels, privacy-policy dialogs, etc.)
+ *      cannot leak into the result.
  *   2. The embedded AF_initDataCallback JSON blobs, where Google ships
  *      fields like appsToDebugInfo / developer contact strings.
  * Returns { emails: string[], phones: string[] } (deduped, may be empty).
  */
+const CONTACT_SECTION_ANCHOR = /Developer\s+contact/i;
+
 function extractContactFromHtml(html) {
   const emails = [];
   const phones = [];
 
+  // Isolate the "Developer contact" block (heading + ~1500 chars around it).
+  let contactBlock = '';
+  const anchorMatch = html.match(CONTACT_SECTION_ANCHOR);
+  if (anchorMatch && anchorMatch.index != null) {
+    contactBlock = html.slice(anchorMatch.index, anchorMatch.index + 1500);
+  }
+
+  const scanScope = contactBlock || html; // fall back to whole page if no anchor
+
   // --- Emails -------------------------------------------------------------
-  // Pattern 1: mailto: links (highest confidence — visible on the page)
-  for (const m of html.matchAll(/mailto:([^\s"'<>?]+)/gi)) {
+  // Pattern 1: mailto: links inside the developer-contact block (highest confidence)
+  for (const m of scanScope.matchAll(/mailto:([^\s"'<>?]+)/gi)) {
     const e = decodeURIComponent(m[1]).trim().replace(/[.,;]$/, '').toLowerCase();
     if (isPlausibleEmail(e)) emails.push(e);
   }
@@ -189,8 +204,8 @@ function extractContactFromHtml(html) {
   }
 
   // --- Phones -------------------------------------------------------------
-  // Pattern 1: tel: links
-  for (const m of html.matchAll(/tel:([^\s"'<>?]+)/gi)) {
+  // Pattern 1: tel: links inside the developer-contact block
+  for (const m of scanScope.matchAll(/tel:([^\s"'<>?]+)/gi)) {
     const p = normalizePhone(decodeURIComponent(m[1]));
     if (p) phones.push(p);
   }
@@ -1172,6 +1187,7 @@ async function scrapeApp(packageName, source = 'both') {
       publisherName: ag.publisherName,
       category: ag.category,
       version: ag.version,
+      emails: play?.emails || [],
     } : {
       packageName,
       appName: '',
@@ -1183,6 +1199,10 @@ async function scrapeApp(packageName, source = 'both') {
 
     const merged = {
       ...primary,
+      // Contact info always comes from the Play Store scrape (AppGallery
+      // does not publish developer email/phone). Merge across both branches.
+      emails: [...new Set([...(play?.emails || []), ...(primary.emails || [])])],
+      phones: [...new Set([...(play?.phones || []), ...(primary.phones || [])])],
       googlePlay: play && !play.error
         ? { version: play.version, appName: play.appName, publisherName: play.publisherName, category: play.category, source: play.source || 'GooglePlayScraper', playStoreUrl: `https://play.google.com/store/apps/details?id=${encodeURIComponent(packageName)}` }
         : { error: play?.error || playSettled.reason?.message || 'Not available' },

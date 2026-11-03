@@ -9,6 +9,8 @@ import {
   XIcon,
   BugIcon,
   CalendarIcon,
+  MailIcon,
+  PhoneIcon,
 } from './icons';
 
 interface ResultsTableProps {
@@ -35,6 +37,7 @@ export function ResultsTable({ results }: ResultsTableProps) {
               <th>Play Store</th>
               <th>AppGallery</th>
               <th>Last Update</th>
+              <th>Contact (Email / Phone)</th>
               <th>App ID</th>
               <th>Status</th>
               <th>Debug</th>
@@ -142,6 +145,43 @@ export function ResultsTable({ results }: ResultsTableProps) {
                       )}
                     </td>
 
+                    {/* Contact info — developer email & phone (merged, from Google Play) */}
+                    <td>
+                      {(() => {
+                        const emails = result.emails || [];
+                        const phones = result.phones || [];
+                        if (!emails.length && !phones.length) {
+                          return <span className="chip chip-neutral">-</span>;
+                        }
+                        return (
+                          <div className="flex flex-col gap-1 items-start max-w-[260px]">
+                            {emails.map((e) => (
+                              <a
+                                key={`email-${e}`}
+                                href={`mailto:${e}`}
+                                className="link-glass !text-[12px] break-all"
+                                title={e}
+                              >
+                                <MailIcon className="w-3 h-3 shrink-0" />
+                                {e}
+                              </a>
+                            ))}
+                            {phones.map((p) => (
+                              <a
+                                key={`phone-${p}`}
+                                href={`tel:${p.replace(/[^+\d]/g, '')}`}
+                                className="link-glass !text-[12px]"
+                                title={p}
+                              >
+                                <PhoneIcon className="w-3 h-3 shrink-0" />
+                                {p}
+                              </a>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </td>
+
                     {/* AppGallery App ID — clickable, opens the AppGallery page */}
                     <td>
                       {hasAg && ag!.appGalleryAppId ? (
@@ -187,7 +227,7 @@ export function ResultsTable({ results }: ResultsTableProps) {
                   </tr>
                   {expandedRow === idx && result.debug_steps && (
                     <tr className="bg-slate-100/70">
-                      <td colSpan={9} className="px-4 py-3">
+                      <td colSpan={12} className="px-4 py-3">
                         <div className="text-xs font-mono space-y-1.5">
                           <div className="font-semibold text-[var(--ink-muted)] mb-2 uppercase tracking-wider text-[10px]">
                             Debug Steps
